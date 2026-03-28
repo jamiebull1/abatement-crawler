@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Seed — Abatement Crawler{% endblock %}
+
+{% block head %}
+<style>
+  .cat-row label { cursor: pointer; }
+  .cat-row:hover { background: rgba(0,0,0,.03); }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">LLM Seed Generator</h1>
+<p class="text-muted mb-4">
+  Generate one representative "order-of-magnitude" record per category using the LLM —
+  no web crawl required. Records will have low quality scores reflecting their synthetic origin.
+</p>
+
+<div class="row g-4">
+
+  <!-- Left: category selector -->
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        Select categories to seed
+        <div class="d-flex gap-2">
+          <button type="button" id="selectEmpty" class="btn btn-sm btn-outline-secondary">
+            Select empty
+          </button>
+          <button type="button" id="selectAll" class="btn btn-sm btn-outline-secondary">All</button>
+          <button type="button" id="selectNone" class="btn btn-sm btn-outline-secondary">None</button>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('seed_start') }}" id="seedForm">
+        <div class="list-group list-group-flush">
+          {% for cat in categories %}
+          {% set count = counts_by_slug.get(cat.slug, 0) %}
+          <label class="list-group-item list-group-item-action cat-row d-flex align-items-center gap-3">
+            <input class="form-check-input flex-shrink-0 cat-checkbox"
+                   type="checkbox" name="categories" value="{{ cat.slug }}"
+                   data-empty="{{ 'true' if count == 0 else 'false' }}"
+                   {% if cat.slug in preselect or count == 0 %}checked{% endif %}>
+            <div class="flex-grow-1">
+              <span class="fw-semibold">{{ cat.name }}</span>
+              <span class="text-muted small ms-2">{{ cat.slug }}</span>
+            </div>
+            {% if count > 0 %}
+            <span class="badge text-bg-success flex-shrink-0">{{ count }} records</span>
+            {% else %}
+            <span class="badge text-bg-secondary flex-shrink-0">no data</span>
+            {% endif %}
+          </label>
+          {% endfor %}
+        </div>
+        <div class="card-footer">
+          <button type="submit" class="btn btn-warning"
+                  id="startBtn" {% if status.running %}disabled{% endif %}>
+            {% if status.running %}Running…{% else %}Start seed generation{% endif %}
+          </button>
+          <small class="text-muted ms-3">
+            Runs in the background — this page will update automatically.
+          </small>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Right: status -->
+  <div class="col-lg-5">
+    <div class="card" id="statusCard">
+      <div class="card-header fw-semibold d-flex align-items-center gap-2">
+        Status
+        <div class="spinner-border spinner-border-sm text-warning ms-1"
+             id="spinner" role="status"
+             {% if not status.running %}style="display:none"{% endif %}>
+          <span class="visually-hidden">Running…</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="mb-2" id="statusMsg"
+           style="color:{% if status.error %}#dc3545{% elif status.running %}#0d6efd{% else %}inherit{% endif %}">
+          {{ status.message }}
+        </p>
+        {% if status.categories_total > 0 %}
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small text-muted mb-1">
+            <span>Categories</span>
+            <span id="catProgress">{{ status.categories_done }} / {{ status.categories_total }}</span>
+          </div>
+          <div class="progress" style="height:10px">
+            <div class="progress-bar bg-warning" id="catBar"
+                 style="width:{{ (status.categories_done / status.categories_total * 100)|int if status.categories_total else 0 }}%">
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        <dl class="row small mb-0" id="statsDl"
+            {% if status.categories_total == 0 %}style="display:none"{% endif %}>
+          <dt class="col-7">Records saved</dt>
+          <dd class="col-5" id="recordsSaved">{{ status.records_saved }}</dd>
+        </dl>
+        {% if status.error %}
+        <div class="alert alert-danger mt-2 mb-0 small">{{ status.error }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Checkbox helpers
+  document.getElementById('selectAll').onclick = () =>
+    document.querySelectorAll('.cat-checkbox').forEach(cb => cb.checked = true);
+  document.getElementById('selectNone').onclick = () =>
+    document.querySelectorAll('.cat-checkbox').forEach(cb => cb.checked = false);
+  document.getElementById('selectEmpty').onclick = () =>
+    document.querySelectorAll('.cat-checkbox').forEach(cb => {
+      cb.checked = cb.dataset.empty === 'true';
+    });
+
+  // Poll for seed status
+  let polling = {{ 'true' if status.running else 'false' }};
+
+  function updateStatus(data) {
+    document.getElementById('statusMsg').textContent = data.message;
+    document.getElementById('statusMsg').style.color =
+      data.error ? '#dc3545' : data.running ? '#0d6efd' : 'inherit';
+    document.getElementById('spinner').style.display = data.running ? '' : 'none';
+    document.getElementById('startBtn').disabled = data.running;
+    document.getElementById('startBtn').textContent = data.running ? 'Running…' : 'Start seed generation';
+
+    if (data.categories_total > 0) {
+      document.getElementById('statsDl').style.display = '';
+      const pct = Math.round(data.categories_done / data.categories_total * 100);
+      document.getElementById('catProgress').textContent =
+        data.categories_done + ' / ' + data.categories_total;
+      document.getElementById('catBar').style.width = pct + '%';
+      document.getElementById('recordsSaved').textContent = data.records_saved;
+    }
+  }
+
+  function poll() {
+    if (!polling) return;
+    fetch('{{ url_for("seed_status") }}')
+      .then(r => r.json())
+      .then(data => {
+        updateStatus(data);
+        if (!data.running) { polling = false; }
+        else { setTimeout(poll, 3000); }
+      })
+      .catch(() => setTimeout(poll, 5000));
+  }
+
+  if (polling) setTimeout(poll, 3000);
+
+  // Start polling after form submit
+  document.getElementById('seedForm').addEventListener('submit', () => {
+    polling = true;
+    setTimeout(poll, 3000);
+  });
+</script>
+{% endblock %}

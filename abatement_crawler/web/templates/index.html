@@ -1,147 +1,139 @@
 {% extends "base.html" %}
-{% block title %}Abatement Crawler — Home{% endblock %}
+{% block title %}Dashboard — Abatement Crawler{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-lg-9">
+<h1 class="mb-1">Coverage Dashboard</h1>
+<p class="text-muted mb-4">Record counts and quality across all 13 abatement categories.</p>
 
-    <h1 class="mb-1">🌱 Abatement Crawler</h1>
-    <p class="lead text-muted mb-4">
-      Automatically discover, extract, and organise data on carbon abatement
-      measures from web sources.
-    </p>
-
-    <!-- What is this tool -->
-    <div class="card mb-4">
-      <div class="card-header fw-semibold">What is this tool?</div>
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-4">
+    <div class="card text-center h-100">
       <div class="card-body">
-        <p>
-          The <strong>Abatement Crawler</strong> is a web crawler that searches
-          the internet for documents describing carbon abatement measures —
-          technologies and practices for reducing greenhouse gas emissions. It
-          uses AI to extract structured cost and carbon-performance data, then
-          stores everything in a searchable local database.
-        </p>
-        <p class="mb-0">Core capabilities:</p>
-        <ul class="mb-0">
-          <li><strong>Multi-source search</strong> — DuckDuckGo (free, no key needed), SerpAPI, Google Custom Search Engine, or Bing</li>
-          <li><strong>Multi-format ingestion</strong> — HTML, PDF, Excel, DOCX, JSON</li>
-          <li><strong>AI-powered extraction</strong> — Anthropic Claude extracts structured records</li>
-          <li><strong>Quality scoring</strong> — ranks records by evidence quality</li>
-          <li><strong>Data normalisation</strong> — currency, geography and units standardisation</li>
-          <li><strong>Flexible export</strong> — JSONL, CSV, Parquet or Markdown report</li>
-        </ul>
+        <div class="display-5 fw-bold text-primary">{{ overall.total }}</div>
+        <div class="text-muted">Total records</div>
       </div>
     </div>
-
-    <!-- Getting started -->
-    <div class="card mb-4">
-      <div class="card-header fw-semibold">Getting started</div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card text-center h-100">
       <div class="card-body">
-        <ol class="mb-0">
-          <li class="mb-2">
-            <strong>Set your API keys</strong> — open
-            <a href="{{ url_for('config_view') }}">Configuration</a> and enter
-            your Anthropic API key (for LLM extraction). A Search API key is
-            only needed when using Google CSE, Bing, or SerpAPI instead of the
-            default DuckDuckGo.
-          </li>
-          <li class="mb-2">
-            <strong>Define your scope</strong> — specify the industry, process,
-            geographies and abatement types you want to collect data on.
-          </li>
-          <li class="mb-2">
-            <strong>Run a crawl</strong> — go to the
-            <a href="{{ url_for('crawl_view') }}">Crawl</a> page and start a
-            crawl in <em>search</em> mode (automatic query building) or
-            <em>seed</em> mode (from a list of URLs you provide).
-          </li>
-          <li class="mb-0">
-            <strong>Explore results</strong> — browse and filter extracted records
-            on the <a href="{{ url_for('results') }}">Results</a> page, or export
-            them from the CLI.
-          </li>
-        </ol>
+        <div class="display-5 fw-bold
+          {% if overall.avg_quality >= 0.7 %}text-success
+          {% elif overall.avg_quality >= 0.4 %}text-warning
+          {% else %}text-danger{% endif %}">
+          {{ "%.2f"|format(overall.avg_quality) }}
+        </div>
+        <div class="text-muted">Average quality</div>
       </div>
     </div>
-
-    <!-- Crawl modes -->
-    <div class="card mb-4">
-      <div class="card-header fw-semibold">Crawl modes</div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card text-center h-100">
       <div class="card-body">
-        <dl class="row mb-0">
-          <dt class="col-sm-3">Search mode <span class="badge text-bg-secondary">default</span></dt>
-          <dd class="col-sm-9">
-            Automatically builds search queries from your scope configuration and
-            uses a search API to find relevant documents.  The crawler then
-            follows links in a priority queue, preferring high-quality domains.
-          </dd>
-          <dt class="col-sm-3">Seed mode</dt>
-          <dd class="col-sm-9 mb-0">
-            Starts from a list of URLs you provide. Useful when you already have
-            specific reports or data sources you want to extract data from.
-          </dd>
-        </dl>
+        <div class="display-5 fw-bold text-secondary">{{ overall.cats_with_data }} / 13</div>
+        <div class="text-muted">Categories with data</div>
       </div>
     </div>
-
-    <!-- API keys -->
-    <div class="card mb-4">
-      <div class="card-header fw-semibold">API keys required</div>
-      <div class="card-body p-0">
-        <table class="table table-sm mb-0">
-          <thead class="table-light">
-            <tr>
-              <th>Key</th>
-              <th>Purpose</th>
-              <th>Where to obtain</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>Anthropic API key</code></td>
-              <td>LLM extraction via Claude</td>
-              <td><a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a></td>
-            </tr>
-            <tr>
-              <td><code>Search API key</code></td>
-              <td>Web search (Google CSE / Bing / SerpAPI — not needed for DuckDuckGo)</td>
-              <td>
-                <a href="https://programmablesearchengine.google.com" target="_blank" rel="noopener">Google CSE</a> ·
-                <a href="https://www.microsoft.com/en-us/bing/apis/bing-web-search-api" target="_blank" rel="noopener">Bing</a> ·
-                <a href="https://serpapi.com" target="_blank" rel="noopener">serpapi.com</a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="card-footer text-muted small">
-        Keys can also be supplied via the environment variables
-        <code>ANTHROPIC_API_KEY</code> and <code>SEARCH_API_KEY</code>.
-      </div>
-    </div>
-
-    <!-- CLI usage -->
-    <div class="card mb-4">
-      <div class="card-header fw-semibold">CLI usage</div>
-      <div class="card-body">
-        <p class="mb-2 text-muted small">All functionality is also available from the command line:</p>
-        <pre class="bg-light rounded p-3 mb-0"><code># Run in search mode (default)
-abatement-crawler crawl --config config/config.yaml --mode search
-
-# Run in seed mode
-abatement-crawler crawl --config config/config.yaml --mode seed \
-  --seed-urls https://example.com/report.pdf
-
-# Export results
-abatement-crawler export --config config/config.yaml --format csv
-abatement-crawler export --config config/config.yaml --format jsonl --min-quality 0.5
-
-# Launch the web UI
-abatement-crawler web --config config/config.yaml</code></pre>
-      </div>
-    </div>
-
   </div>
 </div>
+
+<!-- Category coverage table -->
+<div class="card mb-4">
+  <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+    Category coverage
+    <a href="{{ url_for('categories_view') }}" class="btn btn-sm btn-outline-secondary">Browse all</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th>#</th>
+          <th>Category</th>
+          <th class="text-center">Records</th>
+          <th style="width:200px">Avg quality</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cat in categories %}
+        {% set s = stats_by_slug.get(cat.slug, {}) %}
+        {% set count = s.get('count', 0) %}
+        {% set avg_q = s.get('avg_quality') or 0 %}
+        <tr>
+          <td class="text-muted small">{{ loop.index }}</td>
+          <td>
+            <span class="fw-semibold">{{ cat.name }}</span>
+            {% if count == 0 %}
+            <span class="badge text-bg-secondary ms-1">no data</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if count > 0 %}
+            <a href="{{ url_for('results', category=cat.slug) }}" class="text-decoration-none">{{ count }}</a>
+            {% else %}
+            <span class="text-muted">0</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if count > 0 %}
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress flex-grow-1" style="height:10px">
+                <div class="progress-bar
+                  {% if avg_q >= 0.7 %}bg-success
+                  {% elif avg_q >= 0.4 %}bg-warning
+                  {% else %}bg-danger{% endif %}"
+                  style="width:{{ (avg_q * 100)|int }}%"></div>
+              </div>
+              <small class="text-muted" style="width:3rem">{{ "%.2f"|format(avg_q) }}</small>
+            </div>
+            {% else %}
+            <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if count == 0 %}
+            <a href="{{ url_for('seed_view', categories=cat.slug) }}"
+               class="btn btn-xs btn-outline-warning btn-sm py-0 px-2" style="font-size:.75rem">Seed?</a>
+            {% else %}
+            <a href="{{ url_for('results', category=cat.slug) }}"
+               class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:.75rem">Browse</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Getting started (collapsed by default once DB has data) -->
+<details {% if overall.total == 0 %}open{% endif %} class="mb-4">
+  <summary class="fw-semibold mb-2" style="cursor:pointer">Getting started</summary>
+  <div class="card">
+    <div class="card-body">
+      <ol class="mb-0">
+        <li class="mb-2">
+          <strong>Set your API key</strong> — open
+          <a href="{{ url_for('config_view') }}">Configuration</a> and enter your Anthropic API key.
+        </li>
+        <li class="mb-2">
+          <strong>Seed the database</strong> — go to
+          <a href="{{ url_for('seed_view') }}">Seed</a> to generate one LLM-estimated record per
+          category (fast, no web crawl).
+        </li>
+        <li class="mb-2">
+          <strong>Find applicable categories</strong> — use
+          <a href="{{ url_for('applicable_categories_view') }}">Applicable Categories</a> to identify
+          which categories apply to your sector or process.
+        </li>
+        <li class="mb-0">
+          <strong>Run a crawl</strong> — go to
+          <a href="{{ url_for('crawl_view') }}">Crawl</a> to fetch real sources and improve coverage.
+        </li>
+      </ol>
+    </div>
+  </div>
+</details>
+
 {% endblock %}

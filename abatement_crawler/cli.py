@@ -109,6 +109,73 @@ def _cmd_captcha_queue(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_seed(args: argparse.Namespace) -> int:
+    from .config import CrawlerConfig  # noqa: PLC0415
+    from .seeder import LLMSeeder  # noqa: PLC0415
+    from .taxonomy import CATEGORIES, CATEGORY_LOOKUP  # noqa: PLC0415
+
+    config = CrawlerConfig.from_yaml(args.config)
+    errors, warnings = config.validate(mode="search")
+    for w in warnings:
+        print(f"Warning: {w}", file=sys.stderr)
+    if errors:
+        for e in errors:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if args.categories:
+        slugs = [s.strip() for s in args.categories.split(",")]
+        unknown = [s for s in slugs if s not in CATEGORY_LOOKUP]
+        if unknown:
+            print(f"Error: unknown category slugs: {', '.join(unknown)}", file=sys.stderr)
+            return 1
+        targets = [CATEGORY_LOOKUP[s] for s in slugs]
+    else:
+        targets = list(CATEGORIES)
+
+    seeder = LLMSeeder(config)
+    stats = seeder.run(categories=targets)
+    print(
+        f"Seed complete: {stats['total_records']} records generated, "
+        f"{stats['qualified_records']} above quality threshold."
+    )
+    return 0
+
+
+def _cmd_applicable_categories(args: argparse.Namespace) -> int:
+    from .applicability import get_applicable_categories  # noqa: PLC0415
+    from .config import CrawlerConfig  # noqa: PLC0415
+
+    config = CrawlerConfig.from_yaml(args.config)
+    errors, warnings = config.validate(mode="search")
+    for w in warnings:
+        print(f"Warning: {w}", file=sys.stderr)
+    if errors:
+        for e in errors:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    applicable, rationale = get_applicable_categories(
+        config,
+        sector=args.sector or "",
+        process=args.process or "",
+        asset_type=args.asset_type or "",
+    )
+
+    if not applicable:
+        print("No applicable categories identified.")
+        return 0
+
+    print(f"\nApplicable abatement categories ({len(applicable)} of 13):\n")
+    for cat in applicable:
+        note = rationale.get(cat.slug, "")
+        print(f"  [{cat.slug}]  {cat.name}")
+        if note:
+            print(f"    {note}")
+    print()
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from .config import CrawlerConfig  # noqa: PLC0415
     from .export import Exporter  # noqa: PLC0415
@@ -212,18 +279,43 @@ def main() -> None:
         "--skip", metavar="URL", help="Mark a URL as skipped"
     )
 
+    # applicable-categories sub-command
+    ac_parser = subparsers.add_parser(
+        "applicable-categories",
+        help="List abatement categories applicable to a sector, process, or asset type",
+    )
+    ac_parser.add_argument("--config", required=True, help="Path to config YAML")
+    ac_parser.add_argument("--sector", default="", help="Sector (e.g. 'steel manufacturing')")
+    ac_parser.add_argument("--process", default="", help="Process (e.g. 'electric arc furnace')")
+    ac_parser.add_argument("--asset-type", default="", dest="asset_type", help="Asset type (e.g. 'furnace')")
+
+    # seed sub-command
+    seed_parser = subparsers.add_parser(
+        "seed", help="Generate LLM-only seed records (one per taxonomy category, no crawl)"
+    )
+    seed_parser.add_argument("--config", required=True, help="Path to config YAML")
+    seed_parser.add_argument(
+        "--categories",
+        metavar="SLUG,SLUG,...",
+        help="Comma-separated category slugs to seed (default: all 13)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "web":
         sys.exit(_cmd_web(args))
     elif args.command == "crawl":
         sys.exit(_cmd_crawl(args))
+    elif args.command == "seed":
+        sys.exit(_cmd_seed(args))
     elif args.command == "export":
         sys.exit(_cmd_export(args))
     elif args.command == "sessions":
         sys.exit(_cmd_sessions(args))
     elif args.command == "captcha-queue":
         sys.exit(_cmd_captcha_queue(args))
+    elif args.command == "applicable-categories":
+        sys.exit(_cmd_applicable_categories(args))
     else:
         parser.print_help()
         sys.exit(0)

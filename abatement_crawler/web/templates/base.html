@@ -42,8 +42,24 @@
                href="{{ url_for('crawl_view') }}">Crawl</a>
           </li>
           <li class="nav-item">
+            <a class="nav-link {% if request.path.startswith('/categories') %}active{% endif %}"
+               href="{{ url_for('categories_view') }}">Categories</a>
+          </li>
+          <li class="nav-item">
             <a class="nav-link {% if request.path.startswith('/results') %}active{% endif %}"
                href="{{ url_for('results') }}">Results</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if request.path.startswith('/seed') %}active{% endif %}"
+               href="{{ url_for('seed_view') }}">Seed</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if request.path.startswith('/applicable-categories') %}active{% endif %}"
+               href="{{ url_for('applicable_categories_view') }}">Applicable</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if request.path.startswith('/export') %}active{% endif %}"
+               href="{{ url_for('export_view') }}">Export</a>
           </li>
           <li class="nav-item">
             <a class="nav-link {% if request.path.startswith('/captcha-queue') %}active{% endif %}"
