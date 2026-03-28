@@ -295,7 +295,7 @@ def create_app(config_path: str | None = None) -> Flask:
                         {
                             "running": False,
                             "message": "Completed successfully.",
-                            "records_found": stats.get("records_saved", 0),
+                            "records_found": stats.get("total_records", 0),
                             "documents_processed": stats.get(
                                 "documents_processed", 0
                             ),
