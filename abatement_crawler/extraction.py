@@ -64,6 +64,18 @@ SCHEMA_DESCRIPTION = """
 }
 """
 
+REFLECTION_PROMPT = """You are monitoring a web crawl that collects carbon abatement cost data.
+
+Crawl scope: {scope_summary}
+Documents processed: {docs_processed}
+URLs remaining in queue: {queue_size}
+Recent measures extracted (last {n_samples}): {recent_measures}
+
+Briefly assess in exactly 3 numbered sentences:
+1. Is the crawl on track with the scope? (yes/no + one sentence explanation)
+2. Should the scope be narrowed or broadened to improve relevance? (one sentence recommendation)
+3. Any specific document types or URL patterns worth prioritising? (one sentence suggestion)"""
+
 EXTRACTION_PROMPT = """You are extracting carbon abatement data from a document chunk.
 
 For each distinct abatement measure described, extract a JSON object with these fields:
@@ -191,6 +203,39 @@ class LLMExtractor:
                 continue
             validated.append(item)
         return validated
+
+    def reflect(
+        self,
+        docs_processed: int,
+        queue_size: int,
+        recent_measures: list[str],
+        scope_summary: str,
+    ) -> str:
+        """Ask Claude for a brief mid-crawl reflection.
+
+        Returns the reflection text, or an empty string if the client is
+        unavailable or the call fails.
+        """
+        if not self._client:
+            return ""
+        prompt = REFLECTION_PROMPT.format(
+            scope_summary=scope_summary,
+            docs_processed=docs_processed,
+            queue_size=queue_size,
+            n_samples=len(recent_measures),
+            recent_measures=", ".join(recent_measures) if recent_measures else "none yet",
+        )
+        try:
+            message = self._client.messages.create(
+                model=self.config.llm_model,
+                max_tokens=256,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return message.content[0].text.strip()
+        except Exception as exc:
+            logger.warning("Reflection LLM call failed: %s", exc)
+            return ""
 
     @staticmethod
     def _make_slug(measure_name: str) -> str:

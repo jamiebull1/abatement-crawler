@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import heapq
 import logging
 from dataclasses import dataclass, field
@@ -53,6 +54,7 @@ class SnowballCrawler:
         self._heap: list[CrawlItem] = []
         self._queued_urls: set[str] = set()
         self._docs_processed = 0
+        self._recent_measures: list[str] = []
 
     def add_seed(self, url: str, score: float = 1.0) -> None:
         """Add a seed URL to the queue."""
@@ -123,6 +125,12 @@ class SnowballCrawler:
                 self.storage.save_record(record)
                 records.append(record)
 
+        # Track recent measure names for reflection
+        for r in records:
+            self._recent_measures.append(r.measure_name)
+        if len(self._recent_measures) > 50:
+            self._recent_measures = self._recent_measures[-50:]
+
         # Queue outbound links if below max depth
         if item.depth < self.config.max_depth:
             self._extract_and_queue_links(item.url, doc["content"], item.depth)
@@ -158,10 +166,24 @@ class SnowballCrawler:
                 self._queued_urls.add(link)
 
     def _reflection_step(self) -> None:
-        """Log progress summary as a lightweight agentic reflection."""
+        """Log progress and call Claude for a brief mid-crawl reflection."""
         queue_size = len(self._heap)
         logger.info(
             "[Reflection] Docs processed: %d | Queue size: %d",
             self._docs_processed,
             queue_size,
         )
+        scope_parts = [
+            f"{k}={v}"
+            for k, v in dataclasses.asdict(self.config.scope).items()
+            if v is not None and v != [] and v != ()
+        ]
+        scope_summary = "; ".join(scope_parts) or "no specific scope defined"
+        reflection = self.extractor.reflect(
+            docs_processed=self._docs_processed,
+            queue_size=queue_size,
+            recent_measures=list(self._recent_measures[-20:]),
+            scope_summary=scope_summary,
+        )
+        if reflection:
+            logger.info("[Reflection result]\n%s", reflection)
