@@ -24,7 +24,7 @@
         </p>
         <p class="mb-0">Core capabilities:</p>
         <ul class="mb-0">
-          <li><strong>Multi-source search</strong> — SerpAPI, Google Custom Search Engine, or Bing</li>
+          <li><strong>Multi-source search</strong> — DuckDuckGo (free, no key needed), SerpAPI, Google Custom Search Engine, or Bing</li>
           <li><strong>Multi-format ingestion</strong> — HTML, PDF, Excel, DOCX, JSON</li>
           <li><strong>AI-powered extraction</strong> — Anthropic Claude extracts structured records</li>
           <li><strong>Quality scoring</strong> — ranks records by evidence quality</li>
@@ -42,7 +42,9 @@
           <li class="mb-2">
             <strong>Set your API keys</strong> — open
             <a href="{{ url_for('config_view') }}">Configuration</a> and enter
-            your Anthropic API key (for LLM extraction) and your Search API key.
+            your Anthropic API key (for LLM extraction). A Search API key is
+            only needed when using Google CSE, Bing, or SerpAPI instead of the
+            default DuckDuckGo.
           </li>
           <li class="mb-2">
             <strong>Define your scope</strong> — specify the industry, process,
@@ -103,11 +105,11 @@
             </tr>
             <tr>
               <td><code>Search API key</code></td>
-              <td>Web search (SerpAPI / Google CSE / Bing)</td>
+              <td>Web search (Google CSE / Bing / SerpAPI — not needed for DuckDuckGo)</td>
               <td>
-                <a href="https://serpapi.com" target="_blank" rel="noopener">serpapi.com</a> ·
                 <a href="https://programmablesearchengine.google.com" target="_blank" rel="noopener">Google CSE</a> ·
-                <a href="https://www.microsoft.com/en-us/bing/apis/bing-web-search-api" target="_blank" rel="noopener">Bing</a>
+                <a href="https://www.microsoft.com/en-us/bing/apis/bing-web-search-api" target="_blank" rel="noopener">Bing</a> ·
+                <a href="https://serpapi.com" target="_blank" rel="noopener">serpapi.com</a>
               </td>
             </tr>
           </tbody>

@@ -108,7 +108,7 @@ class QueryBuilder:
 
 
 class SearchClient:
-    """Wraps SerpAPI / Google CSE / Bing search."""
+    """Wraps DuckDuckGo / SerpAPI / Google CSE / Bing search."""
 
     def __init__(self, config: CrawlerConfig) -> None:
         self.config = config
@@ -121,7 +121,9 @@ class SearchClient:
             List of dicts with keys: url, title, snippet.
         """
         api = self.config.search_api.lower()
-        if api == "serpapi":
+        if api == "duckduckgo":
+            return self._search_duckduckgo(query)
+        elif api == "serpapi":
             return self._search_serpapi(query)
         elif api in ("google_cse", "google"):
             return self._search_google_cse(query)
@@ -134,6 +136,29 @@ class SearchClient:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _search_duckduckgo(self, query: str) -> list[dict[str, str]]:
+        try:
+            from duckduckgo_search import DDGS  # noqa: PLC0415
+        except ImportError:
+            logger.error("duckduckgo_search library not available; install duckduckgo-search")
+            return []
+
+        try:
+            time.sleep(self._rate_limit_delay)
+            with DDGS() as ddgs:
+                items = list(ddgs.text(query, max_results=self.config.results_per_query))
+            return [
+                {
+                    "url": item.get("href", ""),
+                    "title": item.get("title", ""),
+                    "snippet": item.get("body", ""),
+                }
+                for item in (items or [])
+            ]
+        except Exception as exc:
+            logger.error("DuckDuckGo search failed: %s", exc)
+            return []
 
     def _search_serpapi(self, query: str) -> list[dict[str, str]]:
         try:

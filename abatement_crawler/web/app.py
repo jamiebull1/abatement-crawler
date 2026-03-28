@@ -120,7 +120,7 @@ def create_app(config_path: str | None = None) -> Flask:
 
             config = CrawlerConfig(
                 scope=scope,
-                search_api=request.form.get("search_api", "serpapi"),
+                search_api=request.form.get("search_api", "duckduckgo"),
                 search_api_key=search_api_key,
                 max_search_queries=int(request.form.get("max_search_queries", 200)),
                 results_per_query=int(request.form.get("results_per_query", 10)),

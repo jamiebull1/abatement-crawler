@@ -21,8 +21,8 @@ scope:
   languages:
     - en
 
-search_api: serpapi
-search_api_key: ""  # Set via SEARCH_API_KEY environment variable
+search_api: duckduckgo
+search_api_key: ""  # Only needed for Google CSE, Bing, or SerpAPI; set via SEARCH_API_KEY environment variable
 max_search_queries: 200
 results_per_query: 10
 

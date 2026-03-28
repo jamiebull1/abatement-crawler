@@ -16,7 +16,7 @@ class CrawlerConfig(BaseModel):
     """Main configuration for the crawler, loaded from YAML."""
 
     scope: ScopeConfig = Field(default_factory=ScopeConfig)
-    search_api: str = "serpapi"
+    search_api: str = "duckduckgo"
     search_api_key: str = ""
     max_search_queries: int = 200
     results_per_query: int = 10
