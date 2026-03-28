@@ -149,11 +149,43 @@ class LLMExtractor:
     ) -> list[AbatementRecord]:
         """Extract AbatementRecord list from a document chunk.
 
-        Returns an empty list if extraction fails or no records are found.
+        Returns only records that have both cost and abatement data (paired).
+        Returns an empty list if extraction fails or no paired records are found.
         """
+        complete, _partial = self._extract_raw(chunk, source_url, source_title)
+        return complete
+
+    def extract_fragments(
+        self, chunk: str, source_url: str, source_title: str
+    ) -> list[AbatementRecord]:
+        """Extract partial records that failed the paired-data gate.
+
+        Returns records that have cost data OR abatement data but not both.
+        These are useful as evidence fragments for the synthesis step.
+        Does NOT make an additional LLM call — shares the cached result from
+        the most recent _extract_raw() call for the same chunk.
+        """
+        _complete, partial = self._extract_raw(chunk, source_url, source_title)
+        return partial
+
+    def _extract_raw(
+        self, chunk: str, source_url: str, source_title: str
+    ) -> tuple[list[AbatementRecord], list[AbatementRecord]]:
+        """Call the LLM once and split results into (complete, partial) lists.
+
+        complete: records with both cost and abatement data
+        partial: records with only cost or only abatement data (fragments)
+
+        Returns ([], []) if extraction fails or no records are found.
+        """
+        # Return cached result if the same chunk was already extracted
+        cache_key = (chunk[:64], source_url)
+        if hasattr(self, "_raw_cache") and self._raw_cache.get("key") == cache_key:
+            return self._raw_cache["complete"], self._raw_cache["partial"]
+
         if not self._client:
             logger.debug("LLM client not available; skipping extraction.")
-            return []
+            return [], []
 
         prompt = EXTRACTION_PROMPT.format(
             schema_description=SCHEMA_DESCRIPTION,
@@ -166,33 +198,31 @@ class LLMExtractor:
             try:
                 raw = self._call_llm(prompt)
                 records_data = self._validate_and_parse(raw)
-                results = []
+                complete: list[AbatementRecord] = []
+                partial: list[AbatementRecord] = []
                 for data in records_data:
                     data.setdefault("source_url", source_url)
                     data.setdefault("source_title", source_title)
                     data["measure_slug"] = self._make_slug(
                         data.get("measure_name", "unknown")
                     )
-                    # Remove uncertainty markers before validation
-                    cleaned = {
-                        k: v
-                        for k, v in data.items()
-                        if not k.endswith("_uncertain")
-                    }
+                    cleaned = {k: v for k, v in data.items() if not k.endswith("_uncertain")}
                     try:
                         record = AbatementRecord(**cleaned)
                         if _has_paired_data(record):
-                            results.append(record)
+                            complete.append(record)
                         else:
                             logger.debug(
-                                "Dropping record '%s' — missing cost or abatement data.",
+                                "Fragment saved for '%s' — missing cost or abatement data.",
                                 record.measure_name,
                             )
+                            partial.append(record)
                     except Exception as parse_exc:
-                        logger.debug(
-                            "Failed to parse record from LLM output: %s", parse_exc
-                        )
-                return results
+                        logger.debug("Failed to parse record from LLM output: %s", parse_exc)
+
+                # Cache for extract_fragments() to reuse without a second LLM call
+                self._raw_cache = {"key": cache_key, "complete": complete, "partial": partial}
+                return complete, partial
             except Exception as exc:
                 logger.warning(
                     "LLM extraction attempt %d/%d failed: %s",
@@ -203,7 +233,7 @@ class LLMExtractor:
                 if attempt < self.config.max_retries:
                     time.sleep(2 ** attempt)
 
-        return []
+        return [], []
 
     def _call_llm(self, prompt: str) -> str:
         """Call the Anthropic API and return the response text."""

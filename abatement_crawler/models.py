@@ -10,6 +10,44 @@ from pydantic import BaseModel, Field
 
 
 @dataclass
+class AssetGroup:
+    """An emissions-relevant asset group within a sector."""
+
+    name: str  # e.g. "Emergency response vehicles"
+    description: str
+    emission_sources: list[str]  # e.g. ["diesel combustion", "idling"]
+    scope_tag: str  # scope_1 | scope_2 | scope_3 | multiple
+
+
+@dataclass
+class SectorDecomposition:
+    """Sector broken down into emissions-relevant asset groups (Layer 1 output)."""
+
+    sector: str
+    geography: list[str]
+    asset_groups: list[AssetGroup]  # ordered by emissions significance
+
+
+@dataclass
+class AbatementArchetype:
+    """A specific abatement measure template for a given asset group (Layer 2 output)."""
+
+    name: str  # e.g. "Diesel → HVO (fire appliance fleet)"
+    category: str  # fuel_switch | efficiency | behaviour | carbon_capture | process_change | material_sub
+    asset_group: str  # parent asset group name
+    mechanism: str
+    baseline: str
+    abatement_driver: str
+    typical_abatement_pct_min: float | None
+    typical_abatement_pct_max: float | None
+    key_variables: list[str]  # params to extract: km/year, L/km, emission factor, etc.
+    cost_drivers: list[str]
+    constraints: list[str]
+    search_queries: list[str]  # ready-made queries for Layer 3 crawl
+    analogue_sectors: list[str]  # e.g. ["refuse trucks", "ambulances"]
+
+
+@dataclass
 class ScopeConfig:
     """Configuration for the scope of the crawl."""
 
@@ -99,3 +137,11 @@ class AbatementRecord(BaseModel):
 
     # Licence flag
     full_text_restricted: bool = False
+
+    # Pipeline metadata
+    archetype_slug: str | None = None  # links record to its source AbatementArchetype
+
+    # Synthesis metadata (populated only on synthesised records)
+    is_synthesised: bool = False
+    synthesis_sources: list[str] = Field(default_factory=list)     # record_id / fragment_id contributors
+    synthesis_assumptions: list[str] = Field(default_factory=list) # every inferred value stated explicitly

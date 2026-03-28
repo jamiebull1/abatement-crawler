@@ -36,6 +36,16 @@ _seed_status: dict[str, Any] = {
 }
 _seed_lock = threading.Lock()
 
+# Global synthesis state
+_synth_status: dict[str, Any] = {
+    "running": False,
+    "message": "No synthesis has been run yet.",
+    "synthesised_count": 0,
+    "archetypes_processed": 0,
+    "error": None,
+}
+_synth_lock = threading.Lock()
+
 _MASKED = "***set***"
 
 
@@ -222,6 +232,7 @@ def create_app(config_path: str | None = None) -> Flask:
             sector = request.args.get("sector", "").strip()
             category = request.args.get("category", "").strip()
             min_quality = float(request.args.get("min_quality", 0.0))
+            synthesised_filter = request.args.get("synthesised", "all")  # all | yes | no
 
             records = storage.get_all_records(min_quality=min_quality)
 
@@ -247,6 +258,10 @@ def create_app(config_path: str | None = None) -> Flask:
                 ]
             if category:
                 records = [r for r in records if r.abatement_category == category]
+            if synthesised_filter == "yes":
+                records = [r for r in records if r.is_synthesised]
+            elif synthesised_filter == "no":
+                records = [r for r in records if not r.is_synthesised]
 
             total = len(records)
 
@@ -259,6 +274,7 @@ def create_app(config_path: str | None = None) -> Flask:
             error = str(exc)
             page = 1
             per_page = 25
+            synthesised_filter = "all"
 
         return render_template(
             "results.html",
@@ -271,6 +287,7 @@ def create_app(config_path: str | None = None) -> Flask:
             sector=request.args.get("sector", ""),
             category=request.args.get("category", ""),
             min_quality=request.args.get("min_quality", "0"),
+            synthesised_filter=synthesised_filter,
             error=error,
         )
 
@@ -745,6 +762,135 @@ def create_app(config_path: str | None = None) -> Flask:
             total_counts=total_counts,
             filter_status=filter_status,
         )
+
+    # ---- Synthesise ---------------------------------------------------
+
+    @app.route("/synthesise/start", methods=["POST"])
+    def synthesise_start():
+        global _synth_status  # noqa: PLW0603
+
+        with _synth_lock:
+            if _synth_status["running"]:
+                return jsonify({"error": "Synthesis is already running."}), 400
+
+            _synth_status = {
+                "running": True,
+                "message": "Starting…",
+                "synthesised_count": 0,
+                "archetypes_processed": 0,
+                "error": None,
+            }
+
+        cfg_path = app.config["CRAWLER_CONFIG_PATH"]
+        sector = request.form.get("sector", "").strip() or None
+
+        def _run() -> None:
+            global _synth_status  # noqa: PLW0603
+            try:
+                import json  # noqa: PLC0415
+                from pathlib import Path  # noqa: PLC0415
+
+                from ..config import CrawlerConfig  # noqa: PLC0415
+                from ..crawler import _safe_slug  # noqa: PLC0415
+                from ..models import AbatementArchetype  # noqa: PLC0415
+                from ..normalisation import Normaliser  # noqa: PLC0415
+                from ..quality import score_quality  # noqa: PLC0415
+                from ..storage import StorageManager  # noqa: PLC0415
+                from ..synthesis import ArchetypeSynthesiser  # noqa: PLC0415
+
+                config = CrawlerConfig.from_yaml(cfg_path)
+
+                resolved_sector = (
+                    sector
+                    or (config.pipeline.sector if config.pipeline else None)
+                    or config.scope.industry
+                    or (config.scope.sectors[0] if config.scope.sectors else None)
+                )
+                if not resolved_sector:
+                    raise ValueError(
+                        "No sector configured. Set pipeline.sector or scope.industry in config."
+                    )
+
+                sector_slug = _safe_slug(resolved_sector)
+                archetypes_path = Path(config.output_dir) / f"archetypes_{sector_slug}.json"
+                if not archetypes_path.exists():
+                    raise FileNotFoundError(
+                        f"Archetypes file not found: {archetypes_path}. "
+                        "Run pipeline mode first."
+                    )
+
+                archetypes_data = json.loads(archetypes_path.read_text())
+                archetypes = [AbatementArchetype(**d) for d in archetypes_data]
+
+                storage = StorageManager(config.db_path)
+                synthesiser = ArchetypeSynthesiser(config)
+                normaliser = Normaliser(config.base_currency, config.base_year)
+                all_records = storage.get_all_records(min_quality=0.0)
+
+                with _synth_lock:
+                    _synth_status["message"] = f"Synthesising {len(archetypes)} archetypes…"
+
+                n_synthesised = 0
+                for i, archetype in enumerate(archetypes, 1):
+                    with _synth_lock:
+                        _synth_status["archetypes_processed"] = i
+                        _synth_status["message"] = (
+                            f"Archetype {i}/{len(archetypes)}: {archetype.name}…"
+                        )
+
+                    slug = _safe_slug(archetype.name)
+                    arch_records = [
+                        r for r in all_records if r.archetype_slug == slug and not r.is_synthesised
+                    ]
+                    arch_fragments = storage.get_fragments_for_archetype(slug)
+
+                    result = synthesiser.synthesise(archetype, arch_records, arch_fragments)
+                    if result is None:
+                        continue
+
+                    result = normaliser.normalise_record(result)
+                    quality, flags = score_quality(result)
+                    data = result.model_dump()
+                    data["quality_score"] = quality
+                    data["quality_flags"] = list(set(result.quality_flags + flags))
+                    from ..models import AbatementRecord  # noqa: PLC0415
+                    storage.save_record(AbatementRecord(**data))
+                    n_synthesised += 1
+
+                    with _synth_lock:
+                        _synth_status["synthesised_count"] = n_synthesised
+
+                storage.close()
+
+                with _synth_lock:
+                    _synth_status.update(
+                        {
+                            "running": False,
+                            "message": f"Completed: {n_synthesised} records synthesised.",
+                            "synthesised_count": n_synthesised,
+                            "error": None,
+                        }
+                    )
+            except Exception as exc:
+                logger.exception("Synthesis failed")
+                with _synth_lock:
+                    _synth_status.update(
+                        {
+                            "running": False,
+                            "message": "Failed with an error.",
+                            "error": str(exc),
+                        }
+                    )
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        return redirect(url_for("crawl_view"))
+
+    @app.route("/synthesise/status")
+    def synthesise_status():
+        with _synth_lock:
+            return jsonify(dict(_synth_status))
 
     @app.route("/captcha-queue/resolve", methods=["GET", "POST"])
     def captcha_resolve():

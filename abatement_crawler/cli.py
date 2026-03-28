@@ -42,6 +42,8 @@ def _cmd_crawl(args: argparse.Namespace) -> int:
             print("Error: --seed-urls required for seed mode.", file=sys.stderr)
             return 1
         stats = crawler.run_seed_mode(args.seed_urls)
+    elif args.mode == "pipeline":
+        stats = crawler.run_pipeline_mode(sector=getattr(args, "sector", None))
     else:
         stats = crawler.run_search_mode()
 
@@ -176,6 +178,79 @@ def _cmd_applicable_categories(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_synthesise(args: argparse.Namespace) -> int:
+    """Re-run Layer 4 synthesis on an existing crawl dataset without re-crawling."""
+    import json  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    from .config import CrawlerConfig  # noqa: PLC0415
+    from .models import AbatementArchetype  # noqa: PLC0415
+    from .normalisation import Normaliser  # noqa: PLC0415
+    from .quality import score_quality  # noqa: PLC0415
+    from .storage import StorageManager  # noqa: PLC0415
+    from .synthesis import ArchetypeSynthesiser, _make_slug  # noqa: PLC0415
+
+    config = CrawlerConfig.from_yaml(args.config)
+
+    # Resolve sector name (arg → config.pipeline.sector → config.scope.industry)
+    sector = (
+        args.sector
+        or (config.pipeline.sector if config.pipeline else None)
+        or config.scope.industry
+        or (config.scope.sectors[0] if config.scope.sectors else None)
+    )
+    if not sector:
+        print("Error: --sector required (or set pipeline.sector / scope.industry in config).", file=sys.stderr)
+        return 1
+
+    from slugify import slugify as _slugify  # noqa: PLC0415
+    sector_slug = _slugify(sector)
+    archetypes_path = Path(config.output_dir) / f"archetypes_{sector_slug}.json"
+    if not archetypes_path.exists():
+        print(f"Error: archetypes file not found at {archetypes_path}.", file=sys.stderr)
+        print("Run pipeline mode first to generate archetypes.", file=sys.stderr)
+        return 1
+
+    archetypes_data = json.loads(archetypes_path.read_text())
+    archetypes = [AbatementArchetype(**d) for d in archetypes_data]
+    print(f"Loaded {len(archetypes)} archetypes from {archetypes_path}")
+
+    storage = StorageManager(config.db_path)
+    synthesiser = ArchetypeSynthesiser(config)
+    normaliser = Normaliser(config.base_currency, config.base_year)
+
+    all_records = storage.get_all_records(min_quality=0.0)
+    n_synthesised = 0
+
+    for archetype in archetypes:
+        slug = _make_slug(archetype.name)
+        arch_records = [r for r in all_records if r.archetype_slug == slug and not r.is_synthesised]
+        arch_fragments = storage.get_fragments_for_archetype(slug)
+
+        result = synthesiser.synthesise(archetype, arch_records, arch_fragments)
+        if result is None:
+            print(f"  [skip] {archetype.name} — insufficient evidence")
+            continue
+
+        result = normaliser.normalise_record(result)
+        quality, flags = score_quality(result)
+        from abatement_crawler.models import AbatementRecord  # noqa: PLC0415
+        data = result.model_dump()
+        data["quality_score"] = quality
+        data["quality_flags"] = list(set(result.quality_flags + flags))
+        result = AbatementRecord(**data)
+        storage.save_record(result)
+        n_synthesised += 1
+        print(
+            f"  [ok]   {archetype.name} — quality={result.quality_score:.2f}, "
+            f"assumptions={len(result.synthesis_assumptions)}"
+        )
+
+    storage.close()
+    print(f"\nSynthesis complete: {n_synthesised}/{len(archetypes)} archetypes synthesised.")
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from .config import CrawlerConfig  # noqa: PLC0415
     from .export import Exporter  # noqa: PLC0415
@@ -216,12 +291,16 @@ def main() -> None:
     crawl_parser.add_argument("--config", required=True, help="Path to config YAML")
     crawl_parser.add_argument(
         "--mode",
-        choices=["seed", "search"],
+        choices=["seed", "search", "pipeline"],
         default="search",
         help="Crawl mode (default: search)",
     )
     crawl_parser.add_argument(
         "--seed-urls", nargs="*", help="Seed URLs for seed mode"
+    )
+    crawl_parser.add_argument(
+        "--sector",
+        help="Sector name for pipeline mode (overrides config pipeline.sector and scope.industry)",
     )
     crawl_parser.add_argument(
         "--fresh",
@@ -261,6 +340,16 @@ def main() -> None:
         "sessions", help="List past crawl sessions"
     )
     sessions_parser.add_argument("--config", required=True, help="Path to config YAML")
+
+    # synthesise sub-command
+    synthesise_parser = subparsers.add_parser(
+        "synthesise", help="Re-run Layer 4 synthesis on an existing crawl dataset"
+    )
+    synthesise_parser.add_argument("--config", required=True, help="Path to config YAML")
+    synthesise_parser.add_argument(
+        "--sector",
+        help="Sector name (overrides config pipeline.sector and scope.industry)",
+    )
 
     # captcha-queue sub-command
     cq_parser = subparsers.add_parser(
@@ -316,6 +405,8 @@ def main() -> None:
         sys.exit(_cmd_captcha_queue(args))
     elif args.command == "applicable-categories":
         sys.exit(_cmd_applicable_categories(args))
+    elif args.command == "synthesise":
+        sys.exit(_cmd_synthesise(args))
     else:
         parser.print_help()
         sys.exit(0)
