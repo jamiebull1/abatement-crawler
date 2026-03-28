@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS abatement_records (
     capex REAL,
     currency TEXT,
     data_json TEXT NOT NULL,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
 );
 """
@@ -77,6 +78,13 @@ class StorageManager:
             conn.execute(_CREATE_URL_CACHE_TABLE)
             conn.execute(_CREATE_CRAWL_SESSIONS_TABLE)
             conn.execute(_CREATE_DUPLICATE_CLUSTERS_TABLE)
+            # Migrate existing databases: add is_deleted column if absent
+            try:
+                conn.execute(
+                    "ALTER TABLE abatement_records ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0"
+                )
+            except Exception:
+                pass  # Column already exists
         logger.debug("Database initialised at %s", self.db_path)
 
     def save_record(self, record: AbatementRecord) -> str:
@@ -121,10 +129,10 @@ class StorageManager:
         return AbatementRecord.model_validate_json(row["data_json"])
 
     def get_all_records(self, min_quality: float = 0.0) -> list[AbatementRecord]:
-        """Retrieve all records above a minimum quality threshold."""
+        """Retrieve all non-deleted records above a minimum quality threshold."""
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT data_json FROM abatement_records WHERE quality_score >= ?",
+            "SELECT data_json FROM abatement_records WHERE quality_score >= ? AND is_deleted = 0",
             (min_quality,),
         ).fetchall()
         records = []
@@ -152,6 +160,15 @@ class StorageManager:
         ).fetchone()
         return row is not None
 
+    def mark_record_deleted(self, record_id: str) -> None:
+        """Soft-delete a record by setting its is_deleted flag."""
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                "UPDATE abatement_records SET is_deleted = 1 WHERE record_id = ?",
+                (record_id,),
+            )
+
     def find_duplicates(self) -> list[list[str]]:
         """Find groups of potentially duplicate records by slug similarity.
 
@@ -160,7 +177,8 @@ class StorageManager:
         """
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT record_id, measure_slug FROM abatement_records ORDER BY measure_slug"
+            "SELECT record_id, measure_slug FROM abatement_records"
+            " WHERE is_deleted = 0 ORDER BY measure_slug"
         ).fetchall()
 
         clusters: dict[str, list[str]] = {}
@@ -171,6 +189,70 @@ class StorageManager:
             clusters[slug].append(row["record_id"])
 
         return [ids for ids in clusters.values() if len(ids) > 1]
+
+    def save_duplicate_clusters(self, clusters: list[list[str]]) -> None:
+        """Persist duplicate clusters to the database, replacing any prior data."""
+        conn = self._get_conn()
+        with conn:
+            conn.execute("DELETE FROM duplicate_clusters")
+            for cluster_id, record_ids in enumerate(clusters):
+                for record_id in record_ids:
+                    conn.execute(
+                        "INSERT INTO duplicate_clusters (cluster_id, record_id) VALUES (?, ?)",
+                        (cluster_id, record_id),
+                    )
+
+    def deduplicate_records(self) -> int:
+        """Deduplicate records by slug, keeping the highest quality_score per cluster.
+
+        Soft-deletes lower-quality duplicates and saves clusters to the
+        duplicate_clusters table. Returns the number of records soft-deleted.
+        """
+        clusters = self.find_duplicates()
+        if not clusters:
+            return 0
+        self.save_duplicate_clusters(clusters)
+        removed = 0
+        conn = self._get_conn()
+        for cluster in clusters:
+            rows = conn.execute(
+                "SELECT record_id, quality_score FROM abatement_records"
+                f" WHERE record_id IN ({','.join('?' * len(cluster))})"
+                " AND is_deleted = 0"
+                " ORDER BY quality_score DESC",
+                cluster,
+            ).fetchall()
+            for row in rows[1:]:
+                self.mark_record_deleted(row["record_id"])
+                removed += 1
+        logger.info("Deduplication soft-deleted %d records.", removed)
+        return removed
+
+    def list_sessions(self) -> list[dict]:
+        """Return a summary of all past crawl sessions, most recent first."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT session_id, scope_config, stats, started_at"
+            " FROM crawl_sessions ORDER BY started_at DESC"
+        ).fetchall()
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "session_id": row["session_id"],
+                    "started_at": row["started_at"],
+                    "scope_config": json.loads(row["scope_config"] or "{}"),
+                    "stats": json.loads(row["stats"] or "{}"),
+                }
+            )
+        return results
+
+    def clear_url_cache(self) -> int:
+        """Delete all URL cache entries. Returns the number of rows removed."""
+        conn = self._get_conn()
+        with conn:
+            cursor = conn.execute("DELETE FROM url_cache")
+        return cursor.rowcount
 
     def save_session(self, session_id: str, scope_config: dict, stats: dict) -> None:
         """Persist a crawl session record."""
