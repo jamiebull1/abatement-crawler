@@ -45,6 +45,10 @@
             <a class="nav-link {% if request.path.startswith('/results') %}active{% endif %}"
                href="{{ url_for('results') }}">Results</a>
           </li>
+          <li class="nav-item">
+            <a class="nav-link {% if request.path.startswith('/captcha-queue') %}active{% endif %}"
+               href="{{ url_for('captcha_queue_view') }}">Captcha Queue</a>
+          </li>
         </ul>
       </div>
     </div>

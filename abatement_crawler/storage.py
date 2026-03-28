@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS duplicate_clusters (
 );
 """
 
+_CREATE_CAPTCHA_QUEUE_TABLE = """
+CREATE TABLE IF NOT EXISTS captcha_queue (
+    url TEXT PRIMARY KEY,
+    captcha_type TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    detected_at TEXT DEFAULT (datetime('now')),
+    resolved_at TEXT,
+    notes TEXT
+);
+"""
+
 
 class StorageManager:
     """SQLite storage for AbatementRecord objects."""
@@ -78,6 +89,7 @@ class StorageManager:
             conn.execute(_CREATE_URL_CACHE_TABLE)
             conn.execute(_CREATE_CRAWL_SESSIONS_TABLE)
             conn.execute(_CREATE_DUPLICATE_CLUSTERS_TABLE)
+            conn.execute(_CREATE_CAPTCHA_QUEUE_TABLE)
             # Migrate existing databases: add is_deleted column if absent
             try:
                 conn.execute(
@@ -265,6 +277,68 @@ class StorageManager:
                 """,
                 (session_id, json.dumps(scope_config), json.dumps(stats)),
             )
+
+    def add_to_captcha_queue(
+        self, url: str, captcha_type: str, notes: str = ""
+    ) -> None:
+        """Add a captcha-blocked URL to the queue with status 'pending'.
+
+        Uses INSERT OR IGNORE so re-detection of an already-queued URL is a no-op.
+        """
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO captcha_queue (url, captcha_type, notes)"
+                " VALUES (?, ?, ?)",
+                (url, captcha_type, notes),
+            )
+
+    def list_captcha_queue(self, status: str | None = None) -> list[dict]:
+        """Return captcha queue entries ordered by detection time (newest first).
+
+        Args:
+            status: Optional filter — one of ``'pending'``, ``'resolved'``,
+                    ``'skipped'``. If ``None``, all entries are returned.
+        """
+        conn = self._get_conn()
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM captcha_queue WHERE status = ?"
+                " ORDER BY detected_at DESC",
+                (status,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM captcha_queue ORDER BY detected_at DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_captcha_status(
+        self, url: str, status: str, notes: str | None = None
+    ) -> None:
+        """Update the status of a captcha queue entry.
+
+        Args:
+            url: The URL to update.
+            status: New status — ``'resolved'`` or ``'skipped'``.
+            notes: Optional note to record alongside the status change.
+        """
+        conn = self._get_conn()
+        with conn:
+            if notes is not None:
+                conn.execute(
+                    "UPDATE captcha_queue"
+                    " SET status = ?, resolved_at = datetime('now'), notes = ?"
+                    " WHERE url = ?",
+                    (status, notes, url),
+                )
+            else:
+                conn.execute(
+                    "UPDATE captcha_queue"
+                    " SET status = ?, resolved_at = datetime('now')"
+                    " WHERE url = ?",
+                    (status, url),
+                )
 
     def close(self) -> None:
         """Close the database connection."""

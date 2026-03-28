@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Captcha Queue — Abatement Crawler{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h2 class="mb-0 me-3">Captcha Queue</h2>
+  <span class="badge bg-warning text-dark me-1">{{ total_counts.pending }} pending</span>
+  <span class="badge bg-success me-1">{{ total_counts.resolved }} resolved</span>
+  <span class="badge bg-secondary">{{ total_counts.skipped }} skipped</span>
+</div>
+
+<p class="text-muted">
+  URLs blocked by captchas or bot-challenges during the crawl.
+  Resolve a URL after manually verifying its content is accessible,
+  or skip it to exclude it from future retries.
+</p>
+
+{# Filter bar #}
+<div class="mb-3 d-flex gap-2 flex-wrap">
+  <a href="{{ url_for('captcha_queue_view') }}"
+     class="btn btn-sm {{ 'btn-dark' if not filter_status else 'btn-outline-secondary' }}">All</a>
+  <a href="{{ url_for('captcha_queue_view', status='pending') }}"
+     class="btn btn-sm {{ 'btn-warning' if filter_status == 'pending' else 'btn-outline-warning' }}">Pending</a>
+  <a href="{{ url_for('captcha_queue_view', status='resolved') }}"
+     class="btn btn-sm {{ 'btn-success' if filter_status == 'resolved' else 'btn-outline-success' }}">Resolved</a>
+  <a href="{{ url_for('captcha_queue_view', status='skipped') }}"
+     class="btn btn-sm {{ 'btn-secondary' if filter_status == 'skipped' else 'btn-outline-secondary' }}">Skipped</a>
+</div>
+
+{% if entries %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-dark">
+      <tr>
+        <th>Status</th>
+        <th>Type</th>
+        <th>Detected</th>
+        <th>URL</th>
+        <th>Notes</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td>
+          {% if entry.status == 'pending' %}
+            <span class="badge bg-warning text-dark">pending</span>
+          {% elif entry.status == 'resolved' %}
+            <span class="badge bg-success">resolved</span>
+          {% else %}
+            <span class="badge bg-secondary">skipped</span>
+          {% endif %}
+        </td>
+        <td><code>{{ entry.captcha_type or '—' }}</code></td>
+        <td class="text-nowrap small text-muted">{{ entry.detected_at }}</td>
+        <td class="small" style="max-width:35rem; word-break:break-all;">
+          <a href="{{ entry.url }}" target="_blank" rel="noopener noreferrer">{{ entry.url }}</a>
+        </td>
+        <td class="small text-muted">{{ entry.notes or '' }}</td>
+        <td class="text-nowrap">
+          {% if entry.status != 'resolved' %}
+          <form method="post" class="d-inline">
+            <input type="hidden" name="url" value="{{ entry.url }}">
+            <input type="hidden" name="action" value="resolve">
+            <button type="submit" class="btn btn-sm btn-outline-success">Resolve</button>
+          </form>
+          {% endif %}
+          {% if entry.status != 'skipped' %}
+          <form method="post" class="d-inline ms-1">
+            <input type="hidden" name="url" value="{{ entry.url }}">
+            <input type="hidden" name="action" value="skip">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Skip</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+  No captcha queue entries{% if filter_status %} with status <strong>{{ filter_status }}</strong>{% endif %}.
+</div>
+{% endif %}
+{% endblock %}
