@@ -81,6 +81,7 @@ class AbatementCrawler:
         search_client = SearchClient(self.config)
         seen_urls: set[str] = set()
 
+        seeds_queued = 0
         for i, query in enumerate(queries):
             logger.debug("Search query %d/%d: %s", i + 1, len(queries), query)
             results = search_client.search(query)
@@ -96,10 +97,18 @@ class AbatementCrawler:
                     url=url,
                     scope=self.config.scope,
                 )
+                logger.debug("Relevance %.3f (threshold %.2f): %s", relevance, self.config.relevance_threshold, url)
                 if relevance >= self.config.relevance_threshold:
+                    prev = len(self.snowball._queued_urls)
                     self.snowball.add_seed(url, score=relevance)
+                    if len(self.snowball._queued_urls) > prev:
+                        seeds_queued += 1
 
-        logger.info("Added %d URLs to snowball queue.", len(seen_urls))
+        logger.info(
+            "Search found %d unique URLs; %d passed relevance threshold and queued for crawl.",
+            len(seen_urls),
+            seeds_queued,
+        )
         records = self.snowball.run()
         return self._finalise(records)
 
