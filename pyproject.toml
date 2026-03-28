@@ -23,7 +23,7 @@ dependencies = [
     "python-slugify>=8.0",
     "requests>=2.31",
     "flask>=3.0",
-    "duckduckgo-search>=6.0",
+    "ddgs>=1.0",
 ]
 
 [project.optional-dependencies]

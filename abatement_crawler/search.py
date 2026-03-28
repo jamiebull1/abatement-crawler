@@ -139,9 +139,9 @@ class SearchClient:
 
     def _search_duckduckgo(self, query: str) -> list[dict[str, str]]:
         try:
-            from duckduckgo_search import DDGS  # noqa: PLC0415
+            from ddgs import DDGS  # noqa: PLC0415
         except ImportError:
-            logger.error("duckduckgo_search library not available; install duckduckgo-search")
+            logger.error("ddgs library not available; install ddgs")
             return []
 
         try:
