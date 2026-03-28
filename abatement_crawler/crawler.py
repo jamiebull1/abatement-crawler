@@ -105,6 +105,11 @@ class AbatementCrawler:
 
     def _finalise(self, records: list[AbatementRecord]) -> dict:
         """Export results and save session stats."""
+        removed = self.storage.deduplicate_records()
+        if removed:
+            logger.info("Soft-deleted %d duplicate records before export.", removed)
+        # Re-fetch so the export reflects deduplication (get_all_records filters is_deleted=0)
+        records = self.storage.get_all_records()
         qualified = [
             r for r in records if r.quality_score >= self.config.min_quality_for_export
         ]
