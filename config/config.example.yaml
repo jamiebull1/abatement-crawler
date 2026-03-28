@@ -1,0 +1,48 @@
+# Abatement Crawler Configuration Example
+
+scope:
+  industry: steel
+  process: electric arc furnace
+  asset_type: furnace
+  company: null
+  geography:
+    - UK
+    - EU
+  sectors:
+    - industry
+    - manufacturing
+  abatement_types:
+    - fuel switch
+    - efficiency
+    - carbon capture
+  year_range:
+    - 2015
+    - 2025
+  languages:
+    - en
+
+search_api: serpapi
+search_api_key: ""  # Set via SEARCH_API_KEY environment variable
+max_search_queries: 200
+results_per_query: 10
+
+max_depth: 4
+relevance_threshold: 0.3
+reflection_interval: 50
+max_total_documents: 2000
+
+llm_model: claude-sonnet-4-20250514
+llm_api_key: ""  # Set via ANTHROPIC_API_KEY environment variable
+extraction_temperature: 0
+max_retries: 2
+
+base_currency: GBP
+base_year: 2023
+min_quality_for_export: 0.3
+
+db_path: ./abatement_records.db
+output_dir: ./output/
+
+requests_per_second: 2.0
+pdf_timeout_seconds: 30
+respect_robots_txt: true
