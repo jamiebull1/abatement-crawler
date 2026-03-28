@@ -284,7 +284,13 @@ def create_app(config_path: str | None = None) -> Flask:
                 config = CrawlerConfig.from_yaml(cfg_path)
                 if fresh:
                     StorageManager(config.db_path).clear_url_cache()
-                crawler = AbatementCrawler(config)
+
+                def _on_progress(docs_processed: int, records_found: int) -> None:
+                    with _crawl_lock:
+                        _crawl_status["documents_processed"] = docs_processed
+                        _crawl_status["records_found"] = records_found
+
+                crawler = AbatementCrawler(config, progress_callback=_on_progress)
 
                 with _crawl_lock:
                     _crawl_status["message"] = "Crawling…"
