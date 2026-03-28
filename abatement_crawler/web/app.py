@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
 import os
 import threading
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, make_response, redirect, render_template, request, url_for
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,17 @@ _crawl_status: dict[str, Any] = {
     "error": None,
 }
 _crawl_lock = threading.Lock()
+
+# Global seed state shared across requests
+_seed_status: dict[str, Any] = {
+    "running": False,
+    "message": "No seed run has been started yet.",
+    "categories_total": 0,
+    "categories_done": 0,
+    "records_saved": 0,
+    "error": None,
+}
+_seed_lock = threading.Lock()
 
 _MASKED = "***set***"
 
@@ -47,13 +61,41 @@ def create_app(config_path: str | None = None) -> Flask:
             return CrawlerConfig.from_yaml(cfg_path)
         return CrawlerConfig()
 
+    def _get_category_stats():
+        """Return (stats_by_slug, overall) for the dashboard. Returns ({}, {}) on error."""
+        try:
+            from ..storage import StorageManager  # noqa: PLC0415
+
+            config = _load_config()
+            storage = StorageManager(config.db_path)
+            rows = storage.get_category_stats()
+            storage.close()
+            stats_by_slug = {r["slug"]: r for r in rows}
+            total = sum(r["count"] for r in rows)
+            avg_q = (
+                sum(r["avg_quality"] * r["count"] for r in rows) / total
+            ) if total else 0.0
+            cats_with_data = sum(1 for r in rows if r["count"] > 0)
+            overall = {"total": total, "avg_quality": avg_q, "cats_with_data": cats_with_data}
+            return stats_by_slug, overall
+        except Exception:
+            return {}, {"total": 0, "avg_quality": 0.0, "cats_with_data": 0}
+
     # ------------------------------------------------------------------
     # Routes
     # ------------------------------------------------------------------
 
     @app.route("/")
     def index():
-        return render_template("index.html")
+        from ..taxonomy import CATEGORIES  # noqa: PLC0415
+
+        stats_by_slug, overall = _get_category_stats()
+        return render_template(
+            "index.html",
+            categories=CATEGORIES,
+            stats_by_slug=stats_by_slug,
+            overall=overall,
+        )
 
     # ---- Config -------------------------------------------------------
 
@@ -178,6 +220,7 @@ def create_app(config_path: str | None = None) -> Flask:
             q = request.args.get("q", "").lower().strip()
             geography = request.args.get("geography", "").strip()
             sector = request.args.get("sector", "").strip()
+            category = request.args.get("category", "").strip()
             min_quality = float(request.args.get("min_quality", 0.0))
 
             records = storage.get_all_records(min_quality=min_quality)
@@ -202,6 +245,8 @@ def create_app(config_path: str | None = None) -> Flask:
                     for r in records
                     if sector.lower() in (r.sector or "").lower()
                 ]
+            if category:
+                records = [r for r in records if r.abatement_category == category]
 
             total = len(records)
 
@@ -224,14 +269,26 @@ def create_app(config_path: str | None = None) -> Flask:
             q=request.args.get("q", ""),
             geography=request.args.get("geography", ""),
             sector=request.args.get("sector", ""),
+            category=request.args.get("category", ""),
             min_quality=request.args.get("min_quality", "0"),
             error=error,
         )
 
     @app.route("/results/<record_id>")
     def result_detail(record_id: str):
+        from ..quality import (  # noqa: PLC0415
+            _cost_data_present,
+            _data_recency,
+            _evidence_completeness,
+            _extraction_confidence,
+            _geography_specificity,
+            _peer_review_score,
+            _source_type_prior,
+        )
+
         error = None
         record = None
+        quality_components = []
         try:
             from ..storage import StorageManager  # noqa: PLC0415
 
@@ -240,11 +297,324 @@ def create_app(config_path: str | None = None) -> Flask:
             record = storage.get_record(record_id)
             if record is None:
                 error = f"Record '{record_id}' not found."
+            else:
+                quality_components = [
+                    ("Evidence completeness", 0.20, _evidence_completeness(record)),
+                    ("Source type prior",     0.20, _source_type_prior(record)),
+                    ("Peer review",           0.15, _peer_review_score(record)),
+                    ("Data recency",          0.15, _data_recency(record)),
+                    ("Cost data present",     0.15, _cost_data_present(record)),
+                    ("Geography specificity", 0.10, _geography_specificity(record)),
+                    ("Extraction confidence", 0.05, _extraction_confidence(record)),
+                ]
         except Exception as exc:
             logger.exception("Error loading record detail")
             error = str(exc)
 
-        return render_template("result_detail.html", record=record, error=error)
+        return render_template(
+            "result_detail.html",
+            record=record,
+            error=error,
+            quality_components=quality_components,
+        )
+
+    # ---- Categories ---------------------------------------------------
+
+    @app.route("/categories")
+    def categories_view():
+        from ..taxonomy import CATEGORIES  # noqa: PLC0415
+
+        stats_by_slug, _ = _get_category_stats()
+        return render_template(
+            "categories.html",
+            categories=CATEGORIES,
+            stats_by_slug=stats_by_slug,
+        )
+
+    # ---- Seed ---------------------------------------------------------
+
+    @app.route("/seed", methods=["GET"])
+    def seed_view():
+        from ..taxonomy import CATEGORIES, CATEGORY_SLUGS  # noqa: PLC0415
+
+        stats_by_slug, _ = _get_category_stats()
+        counts_by_slug = {slug: stats_by_slug.get(slug, {}).get("count", 0) for slug in CATEGORY_SLUGS}
+
+        preselect_raw = request.args.get("categories", "")
+        preselect = [s for s in preselect_raw.split(",") if s in CATEGORY_SLUGS] if preselect_raw else []
+
+        with _seed_lock:
+            status = dict(_seed_status)
+
+        return render_template(
+            "seed.html",
+            categories=CATEGORIES,
+            counts_by_slug=counts_by_slug,
+            status=status,
+            preselect=preselect,
+        )
+
+    @app.route("/seed/start", methods=["POST"])
+    def seed_start():
+        global _seed_status  # noqa: PLW0603
+        from ..taxonomy import CATEGORY_LOOKUP  # noqa: PLC0415
+
+        with _seed_lock:
+            if _seed_status["running"]:
+                return redirect(url_for("seed_view"))
+
+        slugs = request.form.getlist("categories")
+        slugs = [s for s in slugs if s in CATEGORY_LOOKUP]
+        if not slugs:
+            return redirect(url_for("seed_view"))
+
+        selected_categories = [CATEGORY_LOOKUP[s] for s in slugs]
+
+        with _seed_lock:
+            _seed_status.update({
+                "running": True,
+                "message": "Starting…",
+                "categories_total": len(selected_categories),
+                "categories_done": 0,
+                "records_saved": 0,
+                "error": None,
+            })
+
+        cfg_path = app.config["CRAWLER_CONFIG_PATH"]
+
+        def _run() -> None:
+            global _seed_status  # noqa: PLW0603
+            try:
+                from ..config import CrawlerConfig  # noqa: PLC0415
+                from ..quality import score_quality  # noqa: PLC0415
+                from ..seeder import LLMSeeder  # noqa: PLC0415
+
+                config = CrawlerConfig.from_yaml(cfg_path)
+                seeder = LLMSeeder(config)
+                saved = 0
+
+                for i, cat in enumerate(selected_categories):
+                    with _seed_lock:
+                        _seed_status["message"] = f"Generating: {cat.name}…"
+
+                    record = seeder._generate_for_category(cat)
+                    if record is not None:
+                        try:
+                            record = seeder._normaliser.normalise(record)
+                        except Exception:
+                            pass
+                        quality, flags = score_quality(record)
+                        record = record.model_copy(
+                            update={"quality_score": quality, "quality_flags": flags}
+                        )
+                        seeder._storage.save_record(record)
+                        saved += 1
+
+                    with _seed_lock:
+                        _seed_status["categories_done"] = i + 1
+                        _seed_status["records_saved"] = saved
+
+                seeder._storage.close()
+
+                with _seed_lock:
+                    _seed_status.update({
+                        "running": False,
+                        "message": f"Completed — {saved} records saved.",
+                        "error": None,
+                    })
+
+            except Exception as exc:
+                logger.exception("Seed run failed")
+                with _seed_lock:
+                    _seed_status.update({
+                        "running": False,
+                        "message": "Failed with an error.",
+                        "error": str(exc),
+                    })
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        return redirect(url_for("seed_view"))
+
+    @app.route("/seed/status")
+    def seed_status():
+        with _seed_lock:
+            return jsonify(dict(_seed_status))
+
+    # ---- Applicable categories ----------------------------------------
+
+    @app.route("/applicable-categories", methods=["GET", "POST"])
+    def applicable_categories_view():
+        sector = ""
+        process = ""
+        asset_type = ""
+        results = None
+        seed_url = None
+        error = None
+
+        if request.method == "POST":
+            sector = request.form.get("sector", "").strip()
+            process = request.form.get("process", "").strip()
+            asset_type = request.form.get("asset_type", "").strip()
+            try:
+                from ..applicability import get_applicable_categories  # noqa: PLC0415
+
+                config = _load_config()
+                applicable, rationale = get_applicable_categories(
+                    config, sector=sector, process=process, asset_type=asset_type
+                )
+                results = [(cat, rationale.get(cat.slug, "")) for cat in applicable]
+                if applicable:
+                    seed_url = url_for("seed_view") + "?categories=" + ",".join(
+                        c.slug for c in applicable
+                    )
+            except RuntimeError as exc:
+                error = str(exc)
+            except Exception as exc:
+                logger.exception("Applicable categories lookup failed")
+                error = str(exc)
+
+        return render_template(
+            "applicable_categories.html",
+            sector=sector,
+            process=process,
+            asset_type=asset_type,
+            results=results,
+            seed_url=seed_url,
+            error=error,
+        )
+
+    # ---- Export -------------------------------------------------------
+
+    @app.route("/export", methods=["GET", "POST"])
+    def export_view():
+        from ..taxonomy import CATEGORIES  # noqa: PLC0415
+
+        error = None
+
+        if request.method == "GET":
+            try:
+                from ..storage import StorageManager  # noqa: PLC0415
+
+                config = _load_config()
+                storage = StorageManager(config.db_path)
+                record_count = len(storage.get_all_records(min_quality=0.0))
+                storage.close()
+            except Exception:
+                record_count = 0
+            return render_template(
+                "export.html",
+                categories=CATEGORIES,
+                record_count=record_count,
+                fmt=request.args.get("format", "csv"),
+                min_quality=0.3,
+                selected_categories=[],
+                error=None,
+            )
+
+        # POST — build and stream the file
+        fmt = request.form.get("format", "csv")
+        try:
+            min_quality = float(request.form.get("min_quality", 0.0))
+        except ValueError:
+            min_quality = 0.0
+        selected_cats = request.form.getlist("categories")
+
+        try:
+            from ..storage import StorageManager  # noqa: PLC0415
+
+            config = _load_config()
+            storage = StorageManager(config.db_path)
+            records = storage.get_all_records(min_quality=min_quality)
+            storage.close()
+
+            if selected_cats:
+                records = [r for r in records if r.abatement_category in selected_cats]
+
+            if fmt == "jsonl":
+                buf = io.BytesIO()
+                for r in records:
+                    buf.write((r.model_dump_json() + "\n").encode())
+                buf.seek(0)
+                resp = make_response(buf.read())
+                resp.headers["Content-Type"] = "application/x-ndjson"
+                resp.headers["Content-Disposition"] = "attachment; filename=records.jsonl"
+                return resp
+
+            elif fmt == "csv":
+                si = io.StringIO()
+                if records:
+                    fieldnames = list(records[0].model_fields.keys())
+                    writer = csv.DictWriter(si, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for r in records:
+                        row = r.model_dump()
+                        for k, v in row.items():
+                            if isinstance(v, list):
+                                row[k] = "; ".join(str(x) for x in v)
+                        writer.writerow(row)
+                buf = io.BytesIO(si.getvalue().encode())
+                resp = make_response(buf.read())
+                resp.headers["Content-Type"] = "text/csv"
+                resp.headers["Content-Disposition"] = "attachment; filename=records.csv"
+                return resp
+
+            elif fmt == "parquet":
+                try:
+                    import pandas as pd  # noqa: PLC0415
+                except ImportError:
+                    raise RuntimeError("pandas is not installed — parquet export unavailable.")
+                rows = []
+                for r in records:
+                    row = r.model_dump()
+                    for k, v in row.items():
+                        if isinstance(v, list):
+                            row[k] = json.dumps(v)
+                    rows.append(row)
+                df = pd.DataFrame(rows)
+                buf = io.BytesIO()
+                df.to_parquet(buf, index=False)
+                buf.seek(0)
+                resp = make_response(buf.read())
+                resp.headers["Content-Type"] = "application/octet-stream"
+                resp.headers["Content-Disposition"] = "attachment; filename=records.parquet"
+                return resp
+
+            elif fmt == "markdown":
+                from ..export import Exporter  # noqa: PLC0415
+
+                exporter = Exporter(output_dir="/tmp")
+                md = exporter.export_markdown_report(records, scope=config.scope)
+                buf = io.BytesIO(md.encode())
+                resp = make_response(buf.read())
+                resp.headers["Content-Type"] = "text/markdown"
+                resp.headers["Content-Disposition"] = "attachment; filename=report.md"
+                return resp
+
+        except Exception as exc:
+            logger.exception("Export failed")
+            error = str(exc)
+
+        try:
+            from ..storage import StorageManager  # noqa: PLC0415
+
+            config = _load_config()
+            storage = StorageManager(config.db_path)
+            record_count = len(storage.get_all_records(min_quality=0.0))
+            storage.close()
+        except Exception:
+            record_count = 0
+
+        return render_template(
+            "export.html",
+            categories=CATEGORIES,
+            record_count=record_count,
+            fmt=fmt,
+            min_quality=min_quality,
+            selected_categories=selected_cats,
+            error=error,
+        )
 
     # ---- Crawl --------------------------------------------------------
 

@@ -345,3 +345,27 @@ class StorageManager:
         if self._conn:
             self._conn.close()
             self._conn = None
+
+    def get_category_stats(self) -> list[dict]:
+        """Return per-category record counts and average quality scores.
+
+        Categories with zero records are absent — the caller merges against
+        taxonomy.CATEGORY_SLUGS to build the full 13-row view.
+
+        Returns a list of dicts with keys: slug, count, avg_quality, with_cost.
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """
+            SELECT
+                json_extract(data_json, '$.abatement_category') AS slug,
+                COUNT(*)                                          AS count,
+                AVG(quality_score)                               AS avg_quality,
+                SUM(CASE WHEN capex IS NOT NULL
+                              OR mac  IS NOT NULL THEN 1 ELSE 0 END) AS with_cost
+            FROM abatement_records
+            WHERE is_deleted = 0
+            GROUP BY slug
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]

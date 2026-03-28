@@ -179,18 +179,44 @@
         </div>
         {% if record.quality_flags %}
         <p class="mb-1 small text-muted">Flags:</p>
-        <div>
+        <div class="mb-2">
           {% for f in record.quality_flags %}
           <span class="badge text-bg-warning me-1 mb-1">{{ f }}</span>
           {% endfor %}
         </div>
         {% endif %}
+        {% if quality_components %}
+        <p class="mb-1 small text-muted fw-semibold">Score breakdown:</p>
+        <table class="table table-sm mb-0" style="font-size:.8rem">
+          <thead>
+            <tr class="table-light">
+              <th>Component</th>
+              <th class="text-center" style="width:4rem">Weight</th>
+              <th class="text-center" style="width:4rem">Score</th>
+              <th style="width:5rem">Weighted</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for name, weight, score in quality_components %}
+            {% set weighted = weight * score %}
+            <tr>
+              <td>{{ name }}</td>
+              <td class="text-center text-muted">{{ "%.0f"|format(weight * 100) }}%</td>
+              <td class="text-center">{{ "%.2f"|format(score) }}</td>
+              <td>
+                <div class="progress" style="height:8px;margin-top:3px">
+                  <div class="progress-bar bg-info" style="width:{{ (weighted / weight * 100)|int }}%"></div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
         <hr class="my-2">
         <dl class="row small mb-0">
           <dt class="col-6">Extraction method</dt>
           <dd class="col-6">{{ record.extraction_method }}</dd>
-          <dt class="col-6">Extraction confidence</dt>
-          <dd class="col-6">{{ '%.2f'|format(record.extraction_confidence) }}</dd>
         </dl>
       </div>
     </div>

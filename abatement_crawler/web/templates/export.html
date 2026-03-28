@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Export — Abatement Crawler{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Export Records</h1>
+<p class="text-muted mb-4">Download records from the database in your preferred format.</p>
+
+{% if error %}
+<div class="alert alert-danger mb-4">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header fw-semibold">Export options</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('export_view') }}" class="row g-4">
+
+      <!-- Format -->
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Format</label>
+        <select class="form-select" name="format">
+          <option value="csv"      {% if fmt == 'csv' %}selected{% endif %}>CSV</option>
+          <option value="jsonl"    {% if fmt == 'jsonl' %}selected{% endif %}>JSONL (newline-delimited JSON)</option>
+          <option value="parquet"  {% if fmt == 'parquet' %}selected{% endif %}>Parquet (requires pandas)</option>
+          <option value="markdown" {% if fmt == 'markdown' %}selected{% endif %}>Markdown report</option>
+        </select>
+      </div>
+
+      <!-- Min quality -->
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">
+          Minimum quality:
+          <span id="qualLabel" class="text-primary fw-normal">{{ "%.2f"|format(min_quality) }}</span>
+        </label>
+        <input type="range" class="form-range" name="min_quality"
+               id="qualSlider" min="0" max="1" step="0.05"
+               value="{{ min_quality }}"
+               oninput="document.getElementById('qualLabel').textContent = parseFloat(this.value).toFixed(2)">
+        <div class="d-flex justify-content-between small text-muted">
+          <span>0 (all)</span>
+          <span>0.3 (default)</span>
+          <span>1.0 (perfect)</span>
+        </div>
+      </div>
+
+      <!-- Record count hint -->
+      <div class="col-md-4 d-flex align-items-end">
+        <div class="text-muted small">
+          <strong>{{ record_count }}</strong> record{% if record_count != 1 %}s{% endif %}
+          currently in the database.<br>
+          Adjust quality threshold to filter.
+        </div>
+      </div>
+
+      <!-- Category filter -->
+      <div class="col-12">
+        <label class="form-label fw-semibold">
+          Filter by categories
+          <small class="text-muted fw-normal">(hold Ctrl/Cmd to select multiple; leave blank for all)</small>
+        </label>
+        <select class="form-select" name="categories" multiple size="6">
+          {% for cat in categories %}
+          <option value="{{ cat.slug }}"
+                  {% if cat.slug in selected_categories %}selected{% endif %}>
+            {{ cat.name }} ({{ cat.slug }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">Download</button>
+        <small class="text-muted ms-3">The file will download immediately.</small>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Applicable Categories — Abatement Crawler{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Applicable Categories</h1>
+<p class="text-muted mb-4">
+  Enter a sector, process, or asset type to find out which of the 13 abatement
+  categories are relevant — then optionally seed those categories.
+</p>
+
+<div class="card mb-4">
+  <div class="card-header fw-semibold">Context</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('applicable_categories_view') }}" class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Sector</label>
+        <input type="text" class="form-control" name="sector" value="{{ sector }}"
+               placeholder="e.g. steel manufacturing">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Process</label>
+        <input type="text" class="form-control" name="process" value="{{ process }}"
+               placeholder="e.g. electric arc furnace">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Asset type</label>
+        <input type="text" class="form-control" name="asset_type" value="{{ asset_type }}"
+               placeholder="e.g. furnace">
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">Find applicable categories</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if results is not none %}
+  {% if results %}
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">
+      {{ results|length }} applicable categor{{ 'y' if results|length == 1 else 'ies' }}
+      {% if sector or process or asset_type %}
+      <small class="text-muted fw-normal">
+        for
+        {% if sector %}sector "{{ sector }}"{% endif %}
+        {% if process %}{% if sector %}, {% endif %}process "{{ process }}"{% endif %}
+        {% if asset_type %}{% if sector or process %}, {% endif %}asset "{{ asset_type }}"{% endif %}
+      </small>
+      {% endif %}
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for cat, rationale in results %}
+      <li class="list-group-item">
+        <div class="d-flex align-items-start gap-3">
+          <span class="badge text-bg-info mt-1 flex-shrink-0" style="font-size:.75rem">{{ cat.slug }}</span>
+          <div>
+            <span class="fw-semibold">{{ cat.name }}</span>
+            {% if rationale %}
+            <p class="mb-0 text-muted small mt-1">{{ rationale }}</p>
+            {% endif %}
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if seed_url %}
+    <div class="card-footer">
+      <a href="{{ seed_url }}" class="btn btn-warning">
+        Seed these {{ results|length }} categories
+      </a>
+      <small class="text-muted ms-3">Generates LLM-estimated records for each applicable category.</small>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="alert alert-secondary">
+    No applicable categories identified for this context. Try broadening the description.
+  </div>
+  {% endif %}
+{% endif %}
+
+{% endblock %}
