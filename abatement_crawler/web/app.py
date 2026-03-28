@@ -92,6 +92,18 @@ def create_app(config_path: str | None = None) -> Flask:
             return {}, {"total": 0, "avg_quality": 0.0, "cats_with_data": 0}
 
     # ------------------------------------------------------------------
+    # Context processors
+    # ------------------------------------------------------------------
+
+    @app.context_processor
+    def inject_scope():
+        try:
+            config = _load_config()
+            return {"scope_chips": config.scope.describe()}
+        except Exception:
+            return {"scope_chips": []}
+
+    # ------------------------------------------------------------------
     # Routes
     # ------------------------------------------------------------------
 
@@ -348,6 +360,19 @@ def create_app(config_path: str | None = None) -> Flask:
             stats_by_slug=stats_by_slug,
         )
 
+    # ---- Archetypes ---------------------------------------------------
+
+    @app.route("/archetypes")
+    def archetypes_view():
+        from ..storage import StorageManager  # noqa: PLC0415
+
+        config = _load_config()
+        storage = StorageManager(config.db_path)
+        archetypes = storage.get_archetypes()
+        counts = storage.get_archetype_record_counts()
+        storage.close()
+        return render_template("archetypes.html", archetypes=archetypes, counts=counts)
+
     # ---- Seed ---------------------------------------------------------
 
     @app.route("/seed", methods=["GET"])
@@ -358,7 +383,12 @@ def create_app(config_path: str | None = None) -> Flask:
         counts_by_slug = {slug: stats_by_slug.get(slug, {}).get("count", 0) for slug in CATEGORY_SLUGS}
 
         preselect_raw = request.args.get("categories", "")
-        preselect = [s for s in preselect_raw.split(",") if s in CATEGORY_SLUGS] if preselect_raw else []
+        if preselect_raw:
+            preselect = [s for s in preselect_raw.split(",") if s in CATEGORY_SLUGS]
+        else:
+            # Default to scope.abatement_types if configured
+            scope_types = _load_config().scope.abatement_types
+            preselect = [s for s in scope_types if s in CATEGORY_SLUGS] if scope_types else []
 
         with _seed_lock:
             status = dict(_seed_status)
@@ -463,9 +493,13 @@ def create_app(config_path: str | None = None) -> Flask:
 
     @app.route("/applicable-categories", methods=["GET", "POST"])
     def applicable_categories_view():
-        sector = ""
-        process = ""
-        asset_type = ""
+        # Pre-populate form fields from scope config
+        config = _load_config()
+        scope = config.scope
+        sector = scope.industry or (scope.sectors[0] if scope.sectors else "")
+        process = scope.process or ""
+        asset_type = scope.asset_type or ""
+
         results = None
         seed_url = None
         error = None
@@ -474,10 +508,13 @@ def create_app(config_path: str | None = None) -> Flask:
             sector = request.form.get("sector", "").strip()
             process = request.form.get("process", "").strip()
             asset_type = request.form.get("asset_type", "").strip()
+
+        # Run lookup on POST, or on GET when scope provides enough context
+        run_lookup = request.method == "POST" or bool(sector or process or asset_type)
+        if run_lookup:
             try:
                 from ..applicability import get_applicable_categories  # noqa: PLC0415
 
-                config = _load_config()
                 applicable, rationale = get_applicable_categories(
                     config, sector=sector, process=process, asset_type=asset_type
                 )
@@ -813,14 +850,28 @@ def create_app(config_path: str | None = None) -> Flask:
 
                 sector_slug = _safe_slug(resolved_sector)
                 archetypes_path = Path(config.output_dir) / f"archetypes_{sector_slug}.json"
-                if not archetypes_path.exists():
-                    raise FileNotFoundError(
-                        f"Archetypes file not found: {archetypes_path}. "
-                        "Run pipeline mode first."
+                if archetypes_path.exists():
+                    archetypes_data = json.loads(archetypes_path.read_text())
+                else:
+                    # Fall back to archetypes stored in the database
+                    _tmp_storage = StorageManager(config.db_path)
+                    archetypes_data = _tmp_storage.get_archetypes(sector=resolved_sector)
+                    _tmp_storage.close()
+                    if not archetypes_data:
+                        raise FileNotFoundError(
+                            f"No archetypes found for sector '{resolved_sector}'. "
+                            "Run pipeline mode first to generate archetypes."
+                        )
+                    logger.info(
+                        "Archetypes file not found at %s; loaded %d archetypes from database.",
+                        archetypes_path,
+                        len(archetypes_data),
                     )
-
-                archetypes_data = json.loads(archetypes_path.read_text())
-                archetypes = [AbatementArchetype(**d) for d in archetypes_data]
+                _archetype_fields = {f.name for f in AbatementArchetype.__dataclass_fields__.values()}
+                archetypes = [
+                    AbatementArchetype(**{k: v for k, v in d.items() if k in _archetype_fields})
+                    for d in archetypes_data
+                ]
 
                 storage = StorageManager(config.db_path)
                 synthesiser = ArchetypeSynthesiser(config)

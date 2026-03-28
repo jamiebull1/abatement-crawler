@@ -317,7 +317,7 @@ def main() -> None:
     )
     web_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     web_parser.add_argument("--port", type=int, default=5000, help="Port (default: 5000)")
-    web_parser.add_argument("--debug", action="store_true", help="Enable Flask debug mode")
+    web_parser.add_argument("--debug", action="store_true", default=True, help="Enable Flask debug mode (default: on)")
 
     # export sub-command
     export_parser = subparsers.add_parser("export", help="Export records from the database")
