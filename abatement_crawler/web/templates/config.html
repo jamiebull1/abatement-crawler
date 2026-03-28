@@ -123,7 +123,7 @@
             <div class="col-md-4">
               <label class="form-label" for="search_api">Search provider</label>
               <select class="form-select" id="search_api" name="search_api">
-                {% for opt in ['serpapi', 'google_cse', 'bing'] %}
+                {% for opt in ['duckduckgo', 'serpapi', 'google_cse', 'bing'] %}
                 <option value="{{ opt }}" {% if config.search_api == opt %}selected{% endif %}>
                   {{ opt }}
                 </option>
@@ -144,7 +144,7 @@
                      name="search_api_key"
                      placeholder="{% if config.search_api_key %}Leave blank to keep existing key{% else %}Enter your search API key{% endif %}">
               <div class="form-text">
-                Also readable from the <code>SEARCH_API_KEY</code> environment variable.
+                Not required for DuckDuckGo. Also readable from the <code>SEARCH_API_KEY</code> environment variable.
               </div>
             </div>
 
