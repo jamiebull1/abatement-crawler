@@ -94,19 +94,19 @@ class SnowballCrawler:
                 continue
 
             # Fetch all documents in the batch concurrently
-            fetch_results: dict[CrawlItem, tuple[dict | None, Exception | None]] = {}
+            fetch_results: dict[str, tuple[dict | None, Exception | None]] = {}
             with ThreadPoolExecutor(max_workers=len(batch)) as pool:
                 futures = {pool.submit(self._fetch, item): item for item in batch}
                 for future in as_completed(futures):
                     item = futures[future]
                     try:
-                        fetch_results[item] = (future.result(), None)
+                        fetch_results[item.url] = (future.result(), None)
                     except Exception as exc:
-                        fetch_results[item] = (None, exc)
+                        fetch_results[item.url] = (None, exc)
 
             # Process each result sequentially
             for item in batch:
-                doc, error = fetch_results[item]
+                doc, error = fetch_results[item.url]
                 records = self._handle_fetch_result(item, doc, error)
                 all_records.extend(records)
                 self._records_found += len(records)
