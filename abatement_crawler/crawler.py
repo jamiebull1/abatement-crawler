@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
 from .config import CrawlerConfig
+from .decomposition import SectorDecomposer
 from .export import Exporter
 from .extraction import LLMExtractor
 from .ingestion import DocumentIngester
@@ -22,6 +23,19 @@ from .snowball import SnowballCrawler
 from .storage import StorageManager
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_slug(text: str) -> str:
+    """Best-effort slug for an archetype name (mirrors decomposition._make_slug)."""
+    try:
+        from slugify import slugify  # noqa: PLC0415
+
+        return slugify(text)
+    except Exception:
+        import re as _re  # noqa: PLC0415
+
+        slug = _re.sub(r"[^\w-]", "-", text.lower())
+        return slug.strip("-")
 
 
 class AbatementCrawler:
@@ -127,6 +141,131 @@ class AbatementCrawler:
         )
         records = self.snowball.run()
         return self._finalise(records)
+
+    def run_pipeline_mode(self, sector: str | None = None) -> dict:
+        """Layer 1→2→3 pipeline: decompose sector → map archetypes → populate via crawl.
+
+        Layer 1: Ask Claude to break the sector into emissions-relevant asset groups.
+        Layer 2: Ask Claude to map each asset group to specific abatement archetypes,
+                 each with pre-generated search queries and analogue sectors.
+        Layer 3: Run the existing search→snowball crawler using archetype-specific queries,
+                 tagging extracted records with the archetype slug.
+
+        Args:
+            sector: Sector name to decompose. Falls back to config.scope.industry,
+                    then the first entry in config.scope.sectors.
+
+        Returns:
+            Stats dict extended with archetypes_generated and per-archetype record counts.
+        """
+        # Resolve sector name
+        resolved_sector = (
+            sector
+            or getattr(self.config, "pipeline", None) and self.config.pipeline.sector
+            or self.config.scope.industry
+            or (self.config.scope.sectors[0] if self.config.scope.sectors else None)
+        )
+        if not resolved_sector:
+            raise ValueError(
+                "Pipeline mode requires a sector name. Provide --sector, set pipeline.sector "
+                "in config, or set scope.industry."
+            )
+
+        logger.info("Pipeline mode: sector='%s'", resolved_sector)
+
+        # Layer 1: Sector decomposition
+        decomposer = SectorDecomposer(self.config)
+        decomposition = decomposer.decompose(resolved_sector, self.config.scope.geography)
+
+        # Layer 2: Archetype mapping
+        archetypes = decomposer.map_archetypes(decomposition)
+
+        if not archetypes:
+            logger.warning("No archetypes generated; falling back to search mode.")
+            return self.run_search_mode()
+
+        # Layer 3: Build archetype queries and run search→snowball
+        pipeline_cfg = getattr(self.config, "pipeline", None)
+        include_analogues = getattr(pipeline_cfg, "include_analogue_sectors", True)
+        max_per_archetype = getattr(pipeline_cfg, "max_queries_per_archetype", None)
+
+        query_builder = QueryBuilder(self.config.scope)
+        all_queries: list[tuple[str, str]] = []  # (query, archetype_slug)
+        for archetype in archetypes:
+            slug = _safe_slug(archetype.name)
+            queries = query_builder.build_archetype_queries(
+                archetype,
+                include_analogues=include_analogues,
+                max_queries=max_per_archetype,
+            )
+            for q in queries:
+                all_queries.append((q, slug))
+
+        # Cap total queries
+        capped = all_queries[: self.config.max_search_queries]
+        logger.info(
+            "Pipeline: %d archetypes → %d queries (%d after cap).",
+            len(archetypes),
+            len(all_queries),
+            len(capped),
+        )
+
+        search_client = SearchClient(self.config)
+        seen_urls: set[str] = set()
+        seen_lock = threading.Lock()
+        seeds_queued = 0
+
+        def _run_query(q_slug: tuple[str, str]) -> list[tuple[dict, str]]:
+            query, slug = q_slug
+            logger.debug("Pipeline query [%s]: %s", slug, query)
+            results = search_client.search(query)
+            return [(r, slug) for r in (results or [])]
+
+        with ThreadPoolExecutor(max_workers=self.config.max_workers) as pool:
+            futures = {pool.submit(_run_query, qs): qs for qs in capped}
+            for future in as_completed(futures):
+                for result, archetype_slug in (future.result() or []):
+                    url = result.get("url", "")
+                    if not url:
+                        continue
+                    with seen_lock:
+                        if url in seen_urls:
+                            continue
+                        seen_urls.add(url)
+
+                    relevance = score_relevance(
+                        title=result.get("title", ""),
+                        snippet=result.get("snippet", ""),
+                        url=url,
+                        scope=self.config.scope,
+                    )
+                    if relevance >= self.config.relevance_threshold:
+                        prev = len(self.snowball._queued_urls)
+                        self.snowball.add_seed(url, score=relevance, archetype_slug=archetype_slug)
+                        if len(self.snowball._queued_urls) > prev:
+                            seeds_queued += 1
+
+        logger.info(
+            "Pipeline search: %d unique URLs; %d queued for crawl.",
+            len(seen_urls),
+            seeds_queued,
+        )
+
+        records = self.snowball.run()
+        stats = self._finalise(records)
+
+        # Count records per archetype
+        archetype_counts: dict[str, int] = {}
+        for r in records:
+            if r.archetype_slug:
+                archetype_counts[r.archetype_slug] = archetype_counts.get(r.archetype_slug, 0) + 1
+
+        stats["archetypes_generated"] = len(archetypes)
+        stats["archetypes_populated"] = sum(1 for a in archetypes if archetype_counts.get(
+            _safe_slug(a.name), 0
+        ) > 0)
+        stats["archetype_record_counts"] = archetype_counts
+        return stats
 
     def _finalise(self, records: list[AbatementRecord]) -> dict:
         """Export results and save session stats."""

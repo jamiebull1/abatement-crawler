@@ -42,6 +42,8 @@ def _cmd_crawl(args: argparse.Namespace) -> int:
             print("Error: --seed-urls required for seed mode.", file=sys.stderr)
             return 1
         stats = crawler.run_seed_mode(args.seed_urls)
+    elif args.mode == "pipeline":
+        stats = crawler.run_pipeline_mode(sector=getattr(args, "sector", None))
     else:
         stats = crawler.run_search_mode()
 
@@ -216,12 +218,16 @@ def main() -> None:
     crawl_parser.add_argument("--config", required=True, help="Path to config YAML")
     crawl_parser.add_argument(
         "--mode",
-        choices=["seed", "search"],
+        choices=["seed", "search", "pipeline"],
         default="search",
         help="Crawl mode (default: search)",
     )
     crawl_parser.add_argument(
         "--seed-urls", nargs="*", help="Seed URLs for seed mode"
+    )
+    crawl_parser.add_argument(
+        "--sector",
+        help="Sector name for pipeline mode (overrides config pipeline.sector and scope.industry)",
     )
     crawl_parser.add_argument(
         "--fresh",

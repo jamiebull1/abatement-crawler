@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from itertools import product
 from typing import Any
 
 from .config import CrawlerConfig
-from .models import ScopeConfig
+from .models import AbatementArchetype, ScopeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,58 @@ class QueryBuilder:
         if self.scope.company:
             unique.extend(self.build_company_queries())
 
+        return unique
+
+    def build_archetype_queries(
+        self,
+        archetype: AbatementArchetype,
+        include_analogues: bool = True,
+        max_queries: int | None = None,
+    ) -> list[str]:
+        """Build search queries from an archetype's pre-generated query list.
+
+        Combines archetype.search_queries with geo-qualified variants. If
+        include_analogues is True, appends analogue-sector variants of the top
+        two queries for each analogue sector.
+
+        Args:
+            archetype: The archetype to build queries for.
+            include_analogues: Whether to include analogue-sector query variants.
+            max_queries: Optional cap on total queries returned.
+
+        Returns:
+            Deduplicated list of search queries, archetype-specific queries first.
+        """
+        queries: list[str] = list(archetype.search_queries)
+
+        # Geo-qualified variants
+        for geo in self.scope.geography:
+            for q in archetype.search_queries:
+                if geo.lower() not in q.lower():
+                    queries.append(f"{q} {geo}")
+
+        # Analogue-sector variants (top 2 base queries × each analogue)
+        if include_analogues and archetype.analogue_sectors:
+            top_queries = archetype.search_queries[:2]
+            asset_lower = archetype.asset_group.lower()
+            for analogue in archetype.analogue_sectors:
+                for q in top_queries:
+                    variant = re.sub(re.escape(asset_lower), analogue, q, flags=re.IGNORECASE)
+                    if variant != q:
+                        queries.append(variant)
+                    else:
+                        queries.append(f"{analogue} {q}")
+
+        # Deduplicate preserving order
+        seen: set[str] = set()
+        unique: list[str] = []
+        for q in queries:
+            if q not in seen:
+                seen.add(q)
+                unique.append(q)
+
+        if max_queries is not None:
+            unique = unique[:max_queries]
         return unique
 
     def build_company_queries(self) -> list[str]:

@@ -12,10 +12,19 @@ from pydantic import BaseModel, Field
 from .models import ScopeConfig
 
 
+class PipelineConfig(BaseModel):
+    """Configuration for pipeline mode (Layer 1–3)."""
+
+    sector: str | None = None  # overrides scope.industry when set
+    include_analogue_sectors: bool = True  # append analogue-sector query variants
+    max_queries_per_archetype: int | None = None  # cap per archetype (None = unlimited)
+
+
 class CrawlerConfig(BaseModel):
     """Main configuration for the crawler, loaded from YAML."""
 
     scope: ScopeConfig = Field(default_factory=ScopeConfig)
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     search_api: str = "duckduckgo"
     search_api_key: str = ""
     max_search_queries: int = 200
@@ -57,13 +66,17 @@ class CrawlerConfig(BaseModel):
 
         scope = ScopeConfig(**scope_data) if scope_data else ScopeConfig()
 
+        # Handle nested pipeline config
+        pipeline_data = data.pop("pipeline", {})
+        pipeline = PipelineConfig(**pipeline_data) if pipeline_data else PipelineConfig()
+
         # Allow environment variable overrides for sensitive keys
         if not data.get("search_api_key"):
             data["search_api_key"] = os.environ.get("SEARCH_API_KEY", "")
         if not data.get("llm_api_key"):
             data["llm_api_key"] = os.environ.get("ANTHROPIC_API_KEY", "")
 
-        return cls(scope=scope, **data)
+        return cls(scope=scope, pipeline=pipeline, **data)
 
     def validate(self, mode: str = "search") -> tuple[list[str], list[str]]:
         """Validate configuration before starting a crawl.
@@ -80,7 +93,7 @@ class CrawlerConfig(BaseModel):
             )
 
         _KEY_REQUIRED_APIS = {"serpapi", "google_cse", "google", "bing"}
-        if mode == "search" and self.search_api.lower() in _KEY_REQUIRED_APIS:
+        if mode in ("search", "pipeline") and self.search_api.lower() in _KEY_REQUIRED_APIS:
             if not self.search_api_key:
                 errors.append(
                     f"search_api_key is required for {self.search_api}"
@@ -115,8 +128,9 @@ class CrawlerConfig(BaseModel):
         import dataclasses
 
         scope_dict = dataclasses.asdict(self.scope)
-        data = self.model_dump(exclude={"scope"})
+        data = self.model_dump(exclude={"scope", "pipeline"})
         data["scope"] = scope_dict
+        data["pipeline"] = self.pipeline.model_dump()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, default_flow_style=False)

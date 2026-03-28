@@ -31,6 +31,7 @@ class CrawlItem:
     depth: int = field(compare=False)
     source_url: str = field(compare=False, default="")
     anchor_text: str = field(compare=False, default="")
+    archetype_slug: str | None = field(compare=False, default=None)
 
 
 class SnowballCrawler:
@@ -62,10 +63,14 @@ class SnowballCrawler:
         self._records_found = 0
         self._recent_measures: list[str] = []
 
-    def add_seed(self, url: str, score: float = 1.0) -> None:
+    def add_seed(
+        self, url: str, score: float = 1.0, archetype_slug: str | None = None
+    ) -> None:
         """Add a seed URL to the queue."""
         if url not in self._queued_urls and not self.storage.is_url_visited(url):
-            item = CrawlItem(priority=-score, url=url, depth=0, source_url="")
+            item = CrawlItem(
+                priority=-score, url=url, depth=0, source_url="", archetype_slug=archetype_slug
+            )
             heapq.heappush(self._heap, item)
             self._queued_urls.add(url)
 
@@ -176,6 +181,8 @@ class SnowballCrawler:
                 data = record.model_dump()
                 data["quality_score"] = quality
                 data["quality_flags"] = list(set(record.quality_flags + flags))
+                if item.archetype_slug is not None:
+                    data["archetype_slug"] = item.archetype_slug
                 record = AbatementRecord(**data)
                 self.storage.save_record(record)
                 records.append(record)
