@@ -10,14 +10,17 @@ from typing import Any
 
 from .config import CrawlerConfig
 from .models import AbatementRecord
+from .taxonomy import CATEGORY_SLUGS
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_DESCRIPTION = """
-{
+_CATEGORY_VALUES = " | ".join(CATEGORY_SLUGS)
+
+SCHEMA_DESCRIPTION = f"""
+{{
   "measure_name": "string – human-readable name of the abatement measure",
   "measure_slug": "string – url-friendly slug",
-  "abatement_category": "one of: fuel_switch | efficiency | behaviour | carbon_capture | process_change | material_sub",
+  "abatement_category": "one of: {_CATEGORY_VALUES}",
   "sector": "string",
   "sub_sector": "string (optional)",
   "asset_type": "string (optional)",
@@ -61,7 +64,7 @@ SCHEMA_DESCRIPTION = """
   "extraction_confidence": "number 0-1 – your confidence in this extraction",
   "raw_excerpt": "string – verbatim text supporting cost/carbon figures",
   "notes": "string (optional)"
-}
+}}
 """
 
 REFLECTION_PROMPT = """You are monitoring a web crawl that collects carbon abatement cost data.

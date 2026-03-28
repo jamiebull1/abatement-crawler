@@ -31,7 +31,7 @@ class AbatementRecord(BaseModel):
     record_id: str = Field(default_factory=lambda: str(uuid4()))
     measure_name: str
     measure_slug: str
-    abatement_category: str  # fuel_switch | efficiency | behaviour | carbon_capture | process_change | material_sub
+    abatement_category: str  # see taxonomy.CATEGORY_SLUGS for valid values
 
     # Scope mapping
     sector: str

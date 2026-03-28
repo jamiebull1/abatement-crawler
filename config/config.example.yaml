@@ -11,10 +11,20 @@ scope:
   sectors:
     - industry
     - manufacturing
-  abatement_types:
-    - fuel switch
-    - efficiency
-    - carbon capture
+  abatement_types:  # subset as needed — all 13 categories listed for reference
+    - demand_reduction
+    - energy_efficiency
+    - electrification
+    - low_carbon_supply
+    - fuel_switching
+    - flexibility_storage
+    - process_emissions
+    - fugitive_fossil
+    - fugitive_fgases
+    - mining_extractives
+    - materials_circular
+    - carbon_capture
+    - cdr
   year_range:
     - 2015
     - 2025
