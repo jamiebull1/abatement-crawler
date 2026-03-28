@@ -120,7 +120,7 @@ def create_app(config_path: str | None = None) -> Flask:
 
             config = CrawlerConfig(
                 scope=scope,
-                search_api=request.form.get("search_api", "duckduckgo"),
+                search_api=request.form.get("search_api", "serpapi"),
                 search_api_key=search_api_key,
                 max_search_queries=int(request.form.get("max_search_queries", 200)),
                 results_per_query=int(request.form.get("results_per_query", 10)),
@@ -262,7 +262,7 @@ def create_app(config_path: str | None = None) -> Flask:
 
             _crawl_status = {
                 "running": True,
-                "message": "Starting…",
+                "message": "Starting\u2026",
                 "records_found": 0,
                 "documents_processed": 0,
                 "error": None,
@@ -283,7 +283,7 @@ def create_app(config_path: str | None = None) -> Flask:
                 crawler = AbatementCrawler(config)
 
                 with _crawl_lock:
-                    _crawl_status["message"] = "Crawling…"
+                    _crawl_status["message"] = "Crawling\u2026"
 
                 if mode == "seed":
                     stats = crawler.run_seed_mode(seed_urls)
@@ -295,7 +295,7 @@ def create_app(config_path: str | None = None) -> Flask:
                         {
                             "running": False,
                             "message": "Completed successfully.",
-                            "records_found": stats.get("records_saved", 0),
+                            "records_found": stats.get("total_records", 0),
                             "documents_processed": stats.get(
                                 "documents_processed", 0
                             ),
