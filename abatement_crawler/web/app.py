@@ -272,14 +272,18 @@ def create_app(config_path: str | None = None) -> Flask:
         mode = request.form.get("mode", "search")
         seed_urls_raw = request.form.get("seed_urls", "")
         seed_urls = [u.strip() for u in seed_urls_raw.splitlines() if u.strip()]
+        fresh = "fresh" in request.form
 
         def _run() -> None:
             global _crawl_status  # noqa: PLW0603
             try:
                 from ..config import CrawlerConfig  # noqa: PLC0415
                 from ..crawler import AbatementCrawler  # noqa: PLC0415
+                from ..storage import StorageManager  # noqa: PLC0415
 
                 config = CrawlerConfig.from_yaml(cfg_path)
+                if fresh:
+                    StorageManager(config.db_path).clear_url_cache()
                 crawler = AbatementCrawler(config)
 
                 with _crawl_lock:

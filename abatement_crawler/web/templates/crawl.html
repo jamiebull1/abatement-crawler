@@ -111,6 +111,16 @@
                       placeholder="https://example.com/report.pdf&#10;https://example.com/data.xlsx"></textarea>
           </div>
 
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="fresh" name="fresh" value="1">
+              <label class="form-check-label" for="fresh">
+                Clear URL cache before crawling
+                <span class="text-muted small">(re-visit previously seen pages)</span>
+              </label>
+            </div>
+          </div>
+
           <div class="alert alert-info small mb-3">
             <strong>Note:</strong> The crawl runs in the background.
             This page will poll for status updates every 5 seconds.
