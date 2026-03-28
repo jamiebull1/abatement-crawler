@@ -63,7 +63,7 @@
               <th class="text-muted fw-normal ps-3" style="width:50%">{{ label }}</th>
               <td>
                 {% if val is not none %}
-                  {{ '%.2f'|format(val) }}
+                  {% if val is number %}{{ '%.2f'|format(val) }}{% else %}{{ val }}{% endif %}
                   {% if unit_field %} <small class="text-muted">{{ unit_field }}</small>{% endif %}
                   {% if notes %}<br><small class="text-muted">{{ notes }}</small>{% endif %}
                 {% else %}
