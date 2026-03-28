@@ -19,6 +19,9 @@ def make_record(**kwargs) -> AbatementRecord:
         source_type="academic",
         peer_reviewed=True,
         extraction_confidence=0.9,
+        # Include paired cost+abatement data so hard-zero gate doesn't trigger
+        capex=10000.0,
+        abatement_potential_tco2e=100.0,
     )
     defaults.update(kwargs)
     return AbatementRecord(**defaults)

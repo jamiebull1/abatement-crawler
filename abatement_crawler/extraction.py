@@ -76,14 +76,22 @@ Briefly assess in exactly 3 numbered sentences:
 2. Should the scope be narrowed or broadened to improve relevance? (one sentence recommendation)
 3. Any specific document types or URL patterns worth prioritising? (one sentence suggestion)"""
 
-EXTRACTION_PROMPT = """You are extracting carbon abatement data from a document chunk.
+EXTRACTION_PROMPT = """You are extracting carbon abatement data to power an optimisation engine.
 
-For each distinct abatement measure described, extract a JSON object with these fields:
+CRITICAL REQUIREMENT: Only extract a record if it contains BOTH of the following:
+  1. A COST figure — at least one of: capex, opex_delta, opex_fixed, or mac (£/tCO2e or similar)
+  2. An ABATEMENT QUANTITY — at least one of: abatement_potential_tco2e, abatement_percentage,
+     or a carbon intensity before/after pair (carbon_intensity_baseline + carbon_intensity_post)
+
+Records with cost data but no abatement quantity, or abatement quantity but no cost data,
+are NOT useful and must NOT be extracted.
+
+For each qualifying measure, extract a JSON object with these fields:
 {schema_description}
 
 Return a JSON array of records. For uncertain values, add an "_uncertain" key with value true alongside the field.
-Include raw_excerpt with the verbatim text supporting each cost/carbon figure.
-If no abatement measures with cost or carbon data are found, return an empty array [].
+Include raw_excerpt with the verbatim text supporting the cost AND carbon figures.
+If no measures with BOTH cost AND abatement data are found, return [].
 
 Document source URL: {source_url}
 Document title: {source_title}
@@ -93,6 +101,22 @@ Document chunk:
 
 Return only valid JSON. No markdown, no explanation outside the JSON.
 """
+
+
+def _has_paired_data(record: AbatementRecord) -> bool:
+    """Return True only if the record has both a cost figure and an abatement quantity."""
+    has_cost = any([
+        record.capex is not None,
+        record.opex_delta is not None,
+        record.opex_fixed is not None,
+        record.mac is not None,
+    ])
+    has_abatement = any([
+        record.abatement_potential_tco2e is not None,
+        record.abatement_percentage is not None,
+        (record.carbon_intensity_baseline is not None and record.carbon_intensity_post is not None),
+    ])
+    return has_cost and has_abatement
 
 
 class LLMExtractor:
@@ -154,7 +178,13 @@ class LLMExtractor:
                     }
                     try:
                         record = AbatementRecord(**cleaned)
-                        results.append(record)
+                        if _has_paired_data(record):
+                            results.append(record)
+                        else:
+                            logger.debug(
+                                "Dropping record '%s' — missing cost or abatement data.",
+                                record.measure_name,
+                            )
                     except Exception as parse_exc:
                         logger.debug(
                             "Failed to parse record from LLM output: %s", parse_exc

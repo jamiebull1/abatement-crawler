@@ -7,16 +7,17 @@ from urllib.parse import urlparse
 from .models import ScopeConfig
 
 COST_TERMS: list[str] = [
-    "cost",
-    "capex",
-    "opex",
     "marginal abatement cost",
+    "macc",
     "£/tco2e",
     "$/tco2e",
-    "mac",
-    "capital cost",
-    "levelised cost",
+    "cost per tonne",
     "abatement cost",
+    "capex",
+    "opex",
+    "levelised cost",
+    "cost effectiveness",
+    "mac",
 ]
 
 CARBON_TERMS: list[str] = [
@@ -115,27 +116,31 @@ def score_relevance(
 ) -> float:
     """Compute pre-fetch relevance score for a search result.
 
-    relevance = weighted_sum(
-        keyword_match(title, scope_keywords),       weight 0.4
-        keyword_match(snippet, cost_terms),          weight 0.3
-        source_domain_prior(url),                    weight 0.2
-        citation_context_match(anchor_text),         weight 0.1
-    )
+    The key goal is to find documents that contain BOTH cost data and carbon/
+    abatement data (i.e. usable MAC records). The paired signal uses the
+    geometric mean of cost and carbon keyword densities so that a document
+    matching only one side scores near zero.
+
+    relevance = 0.6 * sqrt(cost_signal * carbon_signal)   # paired MAC signal
+              + 0.3 * domain_prior                         # source quality
+              + 0.1 * anchor_signal                        # link context
 
     Returns:
         Float in [0.0, 1.0].
     """
-    s_keywords = _scope_keywords(scope)
+    text = f"{title} {snippet}".strip()
+    cost_signal = _keyword_density(text, COST_TERMS)
+    carbon_signal = _keyword_density(text, CARBON_TERMS + _scope_keywords(scope))
 
-    title_score = _keyword_density(title, s_keywords)
-    snippet_cost_score = _keyword_density(snippet, COST_TERMS)
+    # Geometric mean: non-zero only when BOTH signals are present
+    paired_score = (cost_signal * carbon_signal) ** 0.5 if (cost_signal > 0 and carbon_signal > 0) else 0.0
+
     domain_score = _domain_prior(url)
     anchor_score = _keyword_density(anchor_text, COST_TERMS + CARBON_TERMS) if anchor_text else 0.0
 
     score = (
-        0.4 * title_score
-        + 0.3 * snippet_cost_score
-        + 0.2 * domain_score
+        0.6 * paired_score
+        + 0.3 * domain_score
         + 0.1 * anchor_score
     )
 

@@ -117,6 +117,18 @@ def score_quality(record: AbatementRecord) -> tuple[float, list[str]]:
 
     flags: list[str] = []
 
+    has_cost = record.capex is not None or record.opex_delta is not None or record.opex_fixed is not None or record.mac is not None
+    has_abatement = record.abatement_potential_tco2e is not None or record.abatement_percentage is not None or (
+        record.carbon_intensity_baseline is not None and record.carbon_intensity_post is not None
+    )
+
+    if not has_cost:
+        flags.append("no_cost_data")
+        score = 0.0  # hard zero — unusable for optimisation
+    if not has_abatement:
+        flags.append("no_abatement_data")
+        score = 0.0  # hard zero — unusable for optimisation
+
     if record.capex is None:
         flags.append("no_capex")
     if record.opex_delta is None and record.opex_fixed is None:

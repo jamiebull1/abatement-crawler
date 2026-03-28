@@ -12,18 +12,27 @@ from .models import ScopeConfig
 
 logger = logging.getLogger(__name__)
 
-ABATEMENT_TERMS = [
-    "carbon abatement",
-    "decarbonisation",
-    "GHG reduction",
-    "emission reduction",
+# Primary terms that indicate a document likely contains paired MAC data.
+# Queries lead with these so search results skew toward MACC-type sources.
+MAC_TERMS = [
+    "marginal abatement cost",
+    "MACC",
+    "abatement cost curve",
+    "cost per tonne CO2",
+    "£/tCO2e",
+    "$/tCO2e",
 ]
 
-COST_TERMS = [
+# Fallback abatement terms used only when no MAC-specific terms match.
+ABATEMENT_TERMS = [
+    "decarbonisation cost",
+    "carbon abatement cost",
+]
+
+# Secondary cost qualifiers appended to narrow queries to costed sources.
+COST_QUALIFIERS = [
     "cost",
-    "CAPEX",
-    "marginal abatement cost",
-    "£/tCO2e",
+    "CAPEX opex",
 ]
 
 GEOGRAPHY_MAP: dict[str, str] = {
@@ -46,14 +55,11 @@ class QueryBuilder:
     def build_queries(self) -> list[str]:
         """Build query matrix from scope config.
 
-        query = [abatement_type | "carbon abatement" | "decarbonisation"]
-              × [asset_type | process | sector]
-              × ["cost" | "CAPEX" | "marginal abatement cost" | "£/tCO2e"]
-              × [geography (optional)]
+        Tier 1 (highest signal): MAC_TERMS × topic × geo
+            e.g. "marginal abatement cost office buildings UK"
+        Tier 2 (broader): abatement_types × topic × COST_QUALIFIERS × geo
+            e.g. "efficiency office buildings cost UK"
         """
-        abatement_axis: list[str] = (
-            self.scope.abatement_types if self.scope.abatement_types else ABATEMENT_TERMS[:2]
-        )
         topic_axis: list[str] = []
         if self.scope.asset_type:
             topic_axis.append(self.scope.asset_type)
@@ -63,15 +69,20 @@ class QueryBuilder:
         if not topic_axis:
             topic_axis = ["industry"]
 
-        cost_axis = COST_TERMS
-        geo_axis: list[str | None] = (
-            [g for g in self.scope.geography] if self.scope.geography else [None]
-        )
+        geo_axis: list[str | None] = list(self.scope.geography) if self.scope.geography else [None]
 
         queries: list[str] = []
-        for abatement, topic, cost, geo in product(
-            abatement_axis, topic_axis, cost_axis, geo_axis
-        ):
+
+        # Tier 1: MAC-specific terms paired directly with topic + geo
+        for mac_term, topic, geo in product(MAC_TERMS, topic_axis, geo_axis):
+            parts = [mac_term, topic]
+            if geo:
+                parts.append(geo)
+            queries.append(" ".join(parts))
+
+        # Tier 2: scope abatement types (or generic fallbacks) × cost qualifier × topic × geo
+        abatement_axis = self.scope.abatement_types if self.scope.abatement_types else ABATEMENT_TERMS
+        for abatement, topic, cost, geo in product(abatement_axis, topic_axis, COST_QUALIFIERS, geo_axis):
             parts = [abatement, topic, cost]
             if geo:
                 parts.append(geo)
