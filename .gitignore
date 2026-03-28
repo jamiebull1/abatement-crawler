@@ -7,3 +7,4 @@ build/
 *.db
 output/
 .pytest_cache/
+/config/config.yaml

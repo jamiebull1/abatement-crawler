@@ -118,4 +118,4 @@ class CrawlerConfig(BaseModel):
         data["scope"] = scope_dict
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, default_flow_style=False)
+            yaml.safe_dump(data, f, default_flow_style=False)
