@@ -66,6 +66,17 @@ CREATE TABLE IF NOT EXISTS captcha_queue (
 );
 """
 
+_CREATE_EVIDENCE_FRAGMENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS evidence_fragments (
+    fragment_id   TEXT PRIMARY KEY,
+    archetype_slug TEXT,
+    source_url    TEXT,
+    measure_name  TEXT,
+    data_json     TEXT NOT NULL,
+    created_at    TEXT DEFAULT (datetime('now'))
+);
+"""
+
 
 class StorageManager:
     """SQLite storage for AbatementRecord objects."""
@@ -90,13 +101,16 @@ class StorageManager:
             conn.execute(_CREATE_CRAWL_SESSIONS_TABLE)
             conn.execute(_CREATE_DUPLICATE_CLUSTERS_TABLE)
             conn.execute(_CREATE_CAPTCHA_QUEUE_TABLE)
-            # Migrate existing databases: add is_deleted column if absent
-            try:
-                conn.execute(
-                    "ALTER TABLE abatement_records ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0"
-                )
-            except Exception:
-                pass  # Column already exists
+            conn.execute(_CREATE_EVIDENCE_FRAGMENTS_TABLE)
+            # Migrate existing databases: add columns if absent
+            for migration in (
+                "ALTER TABLE abatement_records ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE abatement_records ADD COLUMN is_synthesised INTEGER NOT NULL DEFAULT 0",
+            ):
+                try:
+                    conn.execute(migration)
+                except Exception:
+                    pass  # Column already exists
         logger.debug("Database initialised at %s", self.db_path)
 
     def save_record(self, record: AbatementRecord) -> str:
@@ -109,8 +123,8 @@ class StorageManager:
                 INSERT OR REPLACE INTO abatement_records
                     (record_id, measure_name, measure_slug, sector, geography,
                      publication_year, source_url, source_type, quality_score,
-                     mac, capex, currency, data_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     mac, capex, currency, is_synthesised, data_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.record_id,
@@ -125,6 +139,7 @@ class StorageManager:
                     record.mac,
                     record.capex,
                     record.currency,
+                    int(record.is_synthesised),
                     data_json,
                 ),
             )
@@ -339,6 +354,62 @@ class StorageManager:
                     " WHERE url = ?",
                     (status, url),
                 )
+
+    def save_fragment(self, record: AbatementRecord) -> str:
+        """Store a partial evidence fragment (failed paired-data gate).
+
+        Fragments are linked to an archetype via archetype_slug and used as
+        input to the synthesis step.  Returns the record_id used as fragment_id.
+        """
+        conn = self._get_conn()
+        data_json = record.model_dump_json()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO evidence_fragments
+                    (fragment_id, archetype_slug, source_url, measure_name, data_json)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    record.record_id,
+                    record.archetype_slug,
+                    record.source_url,
+                    record.measure_name,
+                    data_json,
+                ),
+            )
+        return record.record_id
+
+    def get_fragments_for_archetype(self, archetype_slug: str) -> list[AbatementRecord]:
+        """Return all evidence fragments linked to an archetype slug."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT data_json FROM evidence_fragments WHERE archetype_slug = ?",
+            (archetype_slug,),
+        ).fetchall()
+        fragments = []
+        for row in rows:
+            try:
+                fragments.append(AbatementRecord.model_validate_json(row["data_json"]))
+            except Exception as exc:
+                logger.warning("Failed to deserialise fragment: %s", exc)
+        return fragments
+
+    def get_synthesised_records(self, min_quality: float = 0.0) -> list[AbatementRecord]:
+        """Return only synthesised records (is_synthesised=1)."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT data_json FROM abatement_records"
+            " WHERE is_synthesised = 1 AND quality_score >= ? AND is_deleted = 0",
+            (min_quality,),
+        ).fetchall()
+        records = []
+        for row in rows:
+            try:
+                records.append(AbatementRecord.model_validate_json(row["data_json"]))
+            except Exception as exc:
+                logger.warning("Failed to deserialise synthesised record: %s", exc)
+        return records
 
     def close(self) -> None:
         """Close the database connection."""

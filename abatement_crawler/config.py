@@ -13,11 +13,13 @@ from .models import ScopeConfig
 
 
 class PipelineConfig(BaseModel):
-    """Configuration for pipeline mode (Layer 1–3)."""
+    """Configuration for pipeline mode (Layers 1–4)."""
 
     sector: str | None = None  # overrides scope.industry when set
     include_analogue_sectors: bool = True  # append analogue-sector query variants
     max_queries_per_archetype: int | None = None  # cap per archetype (None = unlimited)
+    synthesis_enabled: bool = True  # run Layer 4 synthesis after Layer 3 crawl
+    include_activity_search: bool = True  # search for activity intensity data when abatement missing
 
 
 class CrawlerConfig(BaseModel):

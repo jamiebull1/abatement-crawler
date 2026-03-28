@@ -140,3 +140,8 @@ class AbatementRecord(BaseModel):
 
     # Pipeline metadata
     archetype_slug: str | None = None  # links record to its source AbatementArchetype
+
+    # Synthesis metadata (populated only on synthesised records)
+    is_synthesised: bool = False
+    synthesis_sources: list[str] = Field(default_factory=list)     # record_id / fragment_id contributors
+    synthesis_assumptions: list[str] = Field(default_factory=list) # every inferred value stated explicitly

@@ -169,12 +169,9 @@ class SnowballCrawler:
         records: list[AbatementRecord] = []
         chunks = self.ingester.chunk_text(doc["content"])
 
+        source_title = doc["metadata"].get("title", item.url)
         for chunk in chunks:
-            extracted = self.extractor.extract(
-                chunk,
-                source_url=item.url,
-                source_title=doc["metadata"].get("title", item.url),
-            )
+            extracted = self.extractor.extract(chunk, source_url=item.url, source_title=source_title)
             for record in extracted:
                 record = self.normaliser.normalise_record(record)
                 quality, flags = score_quality(record)
@@ -186,6 +183,16 @@ class SnowballCrawler:
                 record = AbatementRecord(**data)
                 self.storage.save_record(record)
                 records.append(record)
+
+            # In pipeline mode, also capture partial evidence for synthesis
+            if item.archetype_slug is not None:
+                fragments = self.extractor.extract_fragments(
+                    chunk, source_url=item.url, source_title=source_title
+                )
+                for fragment in fragments:
+                    data = fragment.model_dump()
+                    data["archetype_slug"] = item.archetype_slug
+                    self.storage.save_fragment(AbatementRecord(**data))
 
         # Track recent measure names for reflection
         for r in records:

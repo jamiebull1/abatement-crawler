@@ -252,7 +252,17 @@ class AbatementCrawler:
         )
 
         records = self.snowball.run()
-        stats = self._finalise(records)
+
+        # Layer 4: synthesis (if enabled)
+        synthesised: list[AbatementRecord] = []
+        pipeline_cfg = getattr(self.config, "pipeline", None)
+        if getattr(pipeline_cfg, "synthesis_enabled", True):
+            synthesised = self._run_synthesis(archetypes, records)
+        else:
+            logger.info("Synthesis disabled via pipeline.synthesis_enabled=false.")
+
+        all_records = records + synthesised
+        stats = self._finalise(all_records)
 
         # Count records per archetype
         archetype_counts: dict[str, int] = {}
@@ -265,7 +275,95 @@ class AbatementCrawler:
             _safe_slug(a.name), 0
         ) > 0)
         stats["archetype_record_counts"] = archetype_counts
+        stats["synthesised_records"] = len(synthesised)
         return stats
+
+    def _run_synthesis(
+        self,
+        archetypes: list,
+        records: list[AbatementRecord],
+    ) -> list[AbatementRecord]:
+        """Layer 4: synthesise one best-estimate record per archetype.
+
+        For each archetype, gathers complete extracted records and partial evidence
+        fragments, then calls ArchetypeSynthesiser to produce a single canonical
+        best-estimate AbatementRecord with explicit assumptions.
+
+        Returns:
+            List of synthesised records (empty if synthesis is unavailable).
+        """
+        from .quality import score_quality  # noqa: PLC0415
+        from .synthesis import ArchetypeSynthesiser  # noqa: PLC0415
+
+        synthesiser = ArchetypeSynthesiser(self.config)
+        synthesised: list[AbatementRecord] = []
+        pipeline_cfg = getattr(self.config, "pipeline", None)
+        include_activity = getattr(pipeline_cfg, "include_activity_search", True)
+
+        for archetype in archetypes:
+            slug = _safe_slug(archetype.name)
+            arch_records = [r for r in records if r.archetype_slug == slug]
+            arch_fragments = self.storage.get_fragments_for_archetype(slug)
+
+            # Optional: fetch activity intensity data for missing key variables
+            activity_summary = ""
+            if include_activity and not arch_records and archetype.key_variables:
+                activity_summary = self._fetch_activity_data(archetype, synthesiser)
+
+            result = synthesiser.synthesise(
+                archetype, arch_records, arch_fragments, activity_summary=activity_summary
+            )
+            if result is None:
+                logger.warning(
+                    "Synthesis returned nothing for archetype '%s' "
+                    "(%d records, %d fragments).",
+                    archetype.name, len(arch_records), len(arch_fragments),
+                )
+                continue
+
+            result = self.normaliser.normalise_record(result)
+            quality, flags = score_quality(result)
+            data = result.model_dump()
+            data["quality_score"] = quality
+            data["quality_flags"] = list(set(result.quality_flags + flags))
+            result = AbatementRecord(**data)
+            self.storage.save_record(result)
+            synthesised.append(result)
+            logger.info(
+                "Synthesised '%s': quality=%.2f, assumptions=%d, sources=%d.",
+                archetype.name, result.quality_score,
+                len(result.synthesis_assumptions), len(result.synthesis_sources),
+            )
+
+        return synthesised
+
+    def _fetch_activity_data(self, archetype, synthesiser) -> str:  # type: ignore[type-arg]
+        """Run targeted searches for activity intensity data for an archetype.
+
+        Called when an archetype has no complete records and key_variables suggest
+        activity data is needed to derive abatement potential (e.g. km/year, L/km).
+
+        Returns a plain-text summary for inclusion in the synthesis prompt.
+        """
+        from .search import SearchClient  # noqa: PLC0415
+
+        queries = synthesiser.build_activity_queries(archetype, self.config.scope.geography)
+        if not queries:
+            return ""
+
+        search_client = SearchClient(self.config)
+        snippets: list[str] = []
+        for query in queries[:4]:  # cap at 4 queries to avoid excess API calls
+            results = search_client.search(query)
+            for r in (results or [])[:2]:
+                title = r.get("title", "")
+                snippet = r.get("snippet", "")
+                if title or snippet:
+                    snippets.append(f"• {title}: {snippet}")
+
+        if not snippets:
+            return ""
+        return "\n".join(snippets[:8])  # cap at 8 snippets
 
     def _finalise(self, records: list[AbatementRecord]) -> dict:
         """Export results and save session stats."""

@@ -65,3 +65,5 @@ pipeline:
   sector: null                     # Sector to decompose; overrides scope.industry when set
   include_analogue_sectors: true   # Expand queries using analogue sectors (e.g. refuse trucks for fire fleet)
   max_queries_per_archetype: null  # Cap queries per archetype (null = unlimited)
+  synthesis_enabled: true          # Run Layer 4 synthesis after Layer 3 crawl
+  include_activity_search: true    # Search for activity intensity data when abatement potential is missing
