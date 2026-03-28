@@ -38,6 +38,7 @@ class CrawlerConfig(BaseModel):
     respect_robots_txt: bool = True
     captcha_queue_enabled: bool = True
     request_jitter: float = 0.5
+    max_workers: int = 5
 
     model_config = {"arbitrary_types_allowed": True}
 

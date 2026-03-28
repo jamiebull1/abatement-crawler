@@ -5,6 +5,8 @@ from __future__ import annotations
 import dataclasses
 import heapq
 import logging
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from .captcha import CaptchaDetected
@@ -46,15 +48,18 @@ class SnowballCrawler:
         extractor: LLMExtractor,
         normaliser: Normaliser,
         storage: StorageManager,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> None:
         self.config = config
         self.ingester = ingester
         self.extractor = extractor
         self.normaliser = normaliser
         self.storage = storage
+        self.on_progress = on_progress
         self._heap: list[CrawlItem] = []
         self._queued_urls: set[str] = set()
         self._docs_processed = 0
+        self._records_found = 0
         self._recent_measures: list[str] = []
 
     def add_seed(self, url: str, score: float = 1.0) -> None:
@@ -67,27 +72,52 @@ class SnowballCrawler:
     def run(self, max_documents: int | None = None) -> list[AbatementRecord]:
         """Run snowball traversal until queue is empty or limit reached.
 
+        Fetches a batch of documents concurrently (up to ``max_workers``),
+        then processes each result sequentially for extraction and storage.
+
         Returns:
             All AbatementRecord objects extracted during the run.
         """
         limit = max_documents or self.config.max_total_documents
+        n_workers = getattr(self.config, "max_workers", 5)
         all_records: list[AbatementRecord] = []
 
         while self._heap and self._docs_processed < limit:
-            item = heapq.heappop(self._heap)
+            # Pop a batch of unvisited items
+            batch: list[CrawlItem] = []
+            while self._heap and len(batch) < n_workers:
+                item = heapq.heappop(self._heap)
+                if not self.storage.is_url_visited(item.url):
+                    batch.append(item)
 
-            if self.storage.is_url_visited(item.url):
+            if not batch:
                 continue
 
-            records = self._process_document(item)
-            all_records.extend(records)
+            # Fetch all documents in the batch concurrently
+            fetch_results: dict[CrawlItem, tuple[dict | None, Exception | None]] = {}
+            with ThreadPoolExecutor(max_workers=len(batch)) as pool:
+                futures = {pool.submit(self._fetch, item): item for item in batch}
+                for future in as_completed(futures):
+                    item = futures[future]
+                    try:
+                        fetch_results[item] = (future.result(), None)
+                    except Exception as exc:
+                        fetch_results[item] = (None, exc)
 
-            # Periodic reflection
-            if (
-                self._docs_processed % self.config.reflection_interval == 0
-                and self._docs_processed > 0
-            ):
-                self._reflection_step()
+            # Process each result sequentially
+            for item in batch:
+                doc, error = fetch_results[item]
+                records = self._handle_fetch_result(item, doc, error)
+                all_records.extend(records)
+                self._records_found += len(records)
+                if self.on_progress:
+                    self.on_progress(self._docs_processed, self._records_found)
+
+                if (
+                    self._docs_processed % self.config.reflection_interval == 0
+                    and self._docs_processed > 0
+                ):
+                    self._reflection_step()
 
         logger.info(
             "Snowball complete. Processed %d documents, extracted %d records.",
@@ -96,24 +126,32 @@ class SnowballCrawler:
         )
         return all_records
 
-    def _process_document(self, item: CrawlItem) -> list[AbatementRecord]:
-        """Fetch, ingest, extract, normalise, score, and store a document."""
-        logger.info("Processing [depth=%d] %s", item.depth, item.url)
+    def _fetch(self, item: CrawlItem) -> dict:
+        """Fetch and parse a document. Raises on captcha/forbidden."""
+        logger.info("Fetching [depth=%d] %s", item.depth, item.url)
+        return self.ingester.ingest(item.url, referer=item.source_url or None)
 
-        try:
-            doc = self.ingester.ingest(item.url, referer=item.source_url or None)
-        except CaptchaDetected as exc:
+    def _handle_fetch_result(
+        self, item: CrawlItem, doc: dict | None, error: Exception | None
+    ) -> list[AbatementRecord]:
+        """Process the result of a fetch: extract, normalise, score, store."""
+        if isinstance(error, CaptchaDetected):
             logger.warning(
-                "Captcha blocked %s (type=%s) — queued for human review.",
+                "Blocked %s (type=%s) — queued for human review.",
                 item.url,
-                exc.captcha_type,
+                error.captcha_type,
             )
             self.storage.add_to_captcha_queue(
                 url=item.url,
-                captcha_type=exc.captcha_type,
+                captcha_type=error.captcha_type,
                 notes=f"Source: {item.source_url}" if item.source_url else "",
             )
-            # Do NOT mark as visited so the URL can be retried later
+            # Do NOT mark as visited so the URL can be retried after resolution
+            self._docs_processed += 1
+            return []
+
+        if error is not None or doc is None:
+            logger.warning("Failed to fetch %s: %s", item.url, error)
             self._docs_processed += 1
             return []
 

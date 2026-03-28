@@ -6,6 +6,7 @@ import io
 import logging
 import random
 import re
+import threading
 import time
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -48,6 +49,14 @@ class DocumentIngester:
         self._rate_delay = 1.0 / max(config.requests_per_second, 0.1)
         # Per-domain last-request timestamps for domain-level rate limiting
         self._domain_last_request: dict[str, float] = {}
+        self._domain_locks: dict[str, threading.Lock] = {}
+        self._domain_locks_lock = threading.Lock()
+
+    def _domain_lock(self, domain: str) -> threading.Lock:
+        with self._domain_locks_lock:
+            if domain not in self._domain_locks:
+                self._domain_locks[domain] = threading.Lock()
+            return self._domain_locks[domain]
 
     def ingest(self, url: str, referer: str | None = None) -> dict[str, Any]:
         """Fetch and parse a document.
@@ -68,15 +77,17 @@ class DocumentIngester:
             logger.error("requests library not available")
             return self._empty_result(url)
 
-        # Per-domain rate limiting with random jitter to reduce bot fingerprinting
+        # Per-domain rate limiting with random jitter to reduce bot fingerprinting.
+        # Lock per domain so concurrent threads serialise requests to the same host.
         domain = urlparse(url).netloc
-        now = time.time()
-        last = self._domain_last_request.get(domain, 0.0)
-        wait = self._rate_delay - (now - last)
-        if wait > 0:
-            jitter = random.uniform(0, self._rate_delay * getattr(self.config, "request_jitter", 0.5))
-            time.sleep(wait + jitter)
-        self._domain_last_request[domain] = time.time()
+        with self._domain_lock(domain):
+            now = time.time()
+            last = self._domain_last_request.get(domain, 0.0)
+            wait = self._rate_delay - (now - last)
+            if wait > 0:
+                jitter = random.uniform(0, self._rate_delay * getattr(self.config, "request_jitter", 0.5))
+                time.sleep(wait + jitter)
+            self._domain_last_request[domain] = time.time()
 
         try:
             headers: dict[str, str] = {
@@ -95,6 +106,8 @@ class DocumentIngester:
                 timeout=self.config.pdf_timeout_seconds,
                 allow_redirects=True,
             )
+            if response.status_code == 403:
+                raise CaptchaDetected(url=url, captcha_type="forbidden")
             response.raise_for_status()
         except CaptchaDetected:
             raise
