@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}{{ record.measure_name if record else 'Record' }} — Abatement Crawler{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('results') }}" class="btn btn-sm btn-outline-secondary mb-3">
+  &larr; Back to results
+</a>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if record %}
+
+<h1 class="mb-1">{{ record.measure_name }}</h1>
+<p class="text-muted mb-4">
+  <span class="badge text-bg-info me-1">{{ record.abatement_category }}</span>
+  <span class="badge text-bg-secondary me-1">{{ record.sector }}</span>
+  <span class="badge text-bg-light text-dark border">{{ record.geography }}</span>
+</p>
+
+<div class="row g-4">
+
+  <!-- Left column -->
+  <div class="col-lg-7">
+
+    <!-- Carbon performance -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Carbon performance</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            {% macro row(label, val, unit='') %}
+            <tr>
+              <th class="text-muted fw-normal ps-3" style="width:50%">{{ label }}</th>
+              <td>{{ val if val is not none else '—' }}{% if val is not none and unit %} <small class="text-muted">{{ unit }}</small>{% endif %}</td>
+            </tr>
+            {% endmacro %}
+            {{ row('Abatement potential', record.abatement_potential_tco2e, record.abatement_unit or 'tCO₂e') }}
+            {{ row('Abatement %', ('%.1f'|format(record.abatement_percentage) ~ '%') if record.abatement_percentage is not none else none) }}
+            {{ row('Baseline description', record.baseline_description) }}
+            {{ row('Carbon intensity (baseline)', record.carbon_intensity_baseline) }}
+            {{ row('Carbon intensity (post)', record.carbon_intensity_post) }}
+            {{ row('Scope tag', record.scope_tag) }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Cost data -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Cost data
+        <small class="text-muted fw-normal">({{ record.currency }}{% if record.price_base_year %}, {{ record.price_base_year }} prices{% endif %})</small>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            {% macro cost_row(label, val, unit_field=none, notes=none) %}
+            <tr>
+              <th class="text-muted fw-normal ps-3" style="width:50%">{{ label }}</th>
+              <td>
+                {% if val is not none %}
+                  {{ '%.2f'|format(val) }}
+                  {% if unit_field %} <small class="text-muted">{{ unit_field }}</small>{% endif %}
+                  {% if notes %}<br><small class="text-muted">{{ notes }}</small>{% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+            {% endmacro %}
+            {{ cost_row('CAPEX', record.capex, record.capex_unit, record.capex_notes) }}
+            {{ cost_row('OPEX (fixed)', record.opex_fixed, record.opex_unit) }}
+            {{ cost_row('OPEX (variable)', record.opex_variable, record.opex_unit) }}
+            {{ cost_row('OPEX delta', record.opex_delta, record.opex_unit) }}
+            {{ cost_row('MAC', record.mac, record.currency ~ '/tCO₂e', record.mac_notes) }}
+            {{ cost_row('Lifetime', record.lifetime_years, 'years') }}
+            {{ cost_row('Discount rate', ('%.1f'|format(record.discount_rate * 100) ~ '%') if record.discount_rate is not none else none) }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Enabling conditions -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Enabling conditions</div>
+      <div class="card-body">
+        {% if record.dependencies %}
+        <p class="mb-1"><strong>Dependencies:</strong></p>
+        <ul class="mb-2">{% for d in record.dependencies %}<li>{{ d }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if record.co_benefits %}
+        <p class="mb-1"><strong>Co-benefits:</strong></p>
+        <ul class="mb-2">{% for cb in record.co_benefits %}<li>{{ cb }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if record.barriers %}
+        <p class="mb-1"><strong>Barriers:</strong></p>
+        <ul class="mb-0">{% for b in record.barriers %}<li>{{ b }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if not record.dependencies and not record.co_benefits and not record.barriers %}
+        <span class="text-muted">None recorded.</span>
+        {% endif %}
+        <hr class="my-2">
+        <dl class="row mb-0 small">
+          <dt class="col-sm-5">Implementation complexity</dt>
+          <dd class="col-sm-7">{{ record.implementation_complexity }}</dd>
+          {% if record.lead_time_years is not none %}
+          <dt class="col-sm-5">Lead time</dt>
+          <dd class="col-sm-7">{{ record.lead_time_years }} years</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right column -->
+  <div class="col-lg-5">
+
+    <!-- Source provenance -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Source</div>
+      <div class="card-body">
+        <dl class="row small mb-0">
+          <dt class="col-sm-4">Title</dt>
+          <dd class="col-sm-8">{{ record.source_title or '—' }}</dd>
+          <dt class="col-sm-4">URL</dt>
+          <dd class="col-sm-8 text-break">
+            {% if record.source_url %}
+            <a href="{{ record.source_url }}" target="_blank" rel="noopener">{{ record.source_url }}</a>
+            {% else %}—{% endif %}
+          </dd>
+          <dt class="col-sm-4">Type</dt>
+          <dd class="col-sm-8">{{ record.source_type }}</dd>
+          <dt class="col-sm-4">Organisation</dt>
+          <dd class="col-sm-8">{{ record.source_organisation or '—' }}</dd>
+          {% if record.authors %}
+          <dt class="col-sm-4">Authors</dt>
+          <dd class="col-sm-8">{{ record.authors | join(', ') }}</dd>
+          {% endif %}
+          {% if record.doi %}
+          <dt class="col-sm-4">DOI</dt>
+          <dd class="col-sm-8"><a href="https://doi.org/{{ record.doi }}" target="_blank" rel="noopener">{{ record.doi }}</a></dd>
+          {% endif %}
+          <dt class="col-sm-4">Publication year</dt>
+          <dd class="col-sm-8">{{ record.publication_year }}</dd>
+          {% if record.data_year %}
+          <dt class="col-sm-4">Data year</dt>
+          <dd class="col-sm-8">{{ record.data_year }}</dd>
+          {% endif %}
+          <dt class="col-sm-4">Retrieved</dt>
+          <dd class="col-sm-8">{{ record.retrieved_date }}</dd>
+          <dt class="col-sm-4">Peer reviewed</dt>
+          <dd class="col-sm-8">{{ '✔ Yes' if record.peer_reviewed else 'No' }}</dd>
+          <dt class="col-sm-4">Evidence type</dt>
+          <dd class="col-sm-8">{{ record.evidence_type }}</dd>
+          {% if record.full_text_restricted %}
+          <dt class="col-sm-4">Access</dt>
+          <dd class="col-sm-8 text-danger">Full text restricted</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+    <!-- Quality -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Quality</div>
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <div class="progress flex-grow-1 me-2" style="height:18px">
+            {% set pct = (record.quality_score * 100)|int %}
+            <div class="progress-bar
+              {% if record.quality_score >= 0.7 %}bg-success
+              {% elif record.quality_score >= 0.4 %}bg-warning
+              {% else %}bg-danger{% endif %}"
+              style="width:{{ pct }}%">{{ pct }}%</div>
+          </div>
+          <span class="fw-semibold">{{ '%.2f'|format(record.quality_score) }}</span>
+        </div>
+        {% if record.quality_flags %}
+        <p class="mb-1 small text-muted">Flags:</p>
+        <div>
+          {% for f in record.quality_flags %}
+          <span class="badge text-bg-warning me-1 mb-1">{{ f }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <hr class="my-2">
+        <dl class="row small mb-0">
+          <dt class="col-6">Extraction method</dt>
+          <dd class="col-6">{{ record.extraction_method }}</dd>
+          <dt class="col-6">Extraction confidence</dt>
+          <dd class="col-6">{{ '%.2f'|format(record.extraction_confidence) }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    <!-- Record ID -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Record metadata</div>
+      <div class="card-body small">
+        <dl class="row mb-0">
+          <dt class="col-5">Record ID</dt>
+          <dd class="col-7 text-break"><code>{{ record.record_id }}</code></dd>
+          <dt class="col-5">Slug</dt>
+          <dd class="col-7 text-break">{{ record.measure_slug }}</dd>
+          <dt class="col-5">Asset type</dt>
+          <dd class="col-7">{{ record.asset_type or '—' }}</dd>
+          <dt class="col-5">Process</dt>
+          <dd class="col-7">{{ record.process or '—' }}</dd>
+          <dt class="col-5">Sub-sector</dt>
+          <dd class="col-7">{{ record.sub_sector or '—' }}</dd>
+        </dl>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Raw excerpt -->
+{% if record.raw_excerpt %}
+<div class="card mb-4">
+  <div class="card-header fw-semibold">Raw excerpt from source</div>
+  <div class="card-body">
+    <pre class="bg-light rounded p-3 mb-0" style="white-space:pre-wrap;font-size:.85rem">{{ record.raw_excerpt }}</pre>
+  </div>
+</div>
+{% endif %}
+
+{% if record.notes %}
+<div class="card mb-4">
+  <div class="card-header fw-semibold">Notes</div>
+  <div class="card-body">{{ record.notes }}</div>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

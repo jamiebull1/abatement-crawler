@@ -33,6 +33,14 @@ def _cmd_crawl(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_web(args: argparse.Namespace) -> int:
+    from .web.app import create_app  # noqa: PLC0415
+
+    app = create_app(config_path=args.config)
+    app.run(host=args.host, port=args.port, debug=args.debug)
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from .config import CrawlerConfig  # noqa: PLC0415
     from .export import Exporter  # noqa: PLC0415
@@ -81,6 +89,17 @@ def main() -> None:
         "--seed-urls", nargs="*", help="Seed URLs for seed mode"
     )
 
+    # web sub-command
+    web_parser = subparsers.add_parser("web", help="Launch the web UI")
+    web_parser.add_argument(
+        "--config",
+        default="./config/config.yaml",
+        help="Path to config YAML (default: ./config/config.yaml)",
+    )
+    web_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    web_parser.add_argument("--port", type=int, default=5000, help="Port (default: 5000)")
+    web_parser.add_argument("--debug", action="store_true", help="Enable Flask debug mode")
+
     # export sub-command
     export_parser = subparsers.add_parser("export", help="Export records from the database")
     export_parser.add_argument("--config", required=True, help="Path to config YAML")
@@ -99,7 +118,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.command == "crawl":
+    if args.command == "web":
+        sys.exit(_cmd_web(args))
+    elif args.command == "crawl":
         sys.exit(_cmd_crawl(args))
     elif args.command == "export":
         sys.exit(_cmd_export(args))
