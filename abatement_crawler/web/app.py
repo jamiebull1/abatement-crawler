@@ -323,4 +323,47 @@ def create_app(config_path: str | None = None) -> Flask:
         with _crawl_lock:
             return jsonify(dict(_crawl_status))
 
+    # ---- Captcha Queue ------------------------------------------------
+
+    @app.route("/captcha-queue", methods=["GET", "POST"])
+    def captcha_queue_view():
+        from ..storage import StorageManager  # noqa: PLC0415
+
+        config = _load_config()
+        storage = StorageManager(config.db_path)
+
+        if request.method == "POST":
+            url = request.form.get("url", "")
+            action = request.form.get("action", "")
+            if url and action in ("resolve", "skip"):
+                new_status = "resolved" if action == "resolve" else "skipped"
+                storage.update_captcha_status(url, new_status)
+            storage.close()
+            return redirect(url_for("captcha_queue_view"))
+
+        filter_status = request.args.get("status") or None
+        entries = storage.list_captcha_queue(status=filter_status)
+        counts = {
+            "pending": sum(1 for e in entries if e["status"] == "pending"),
+            "resolved": sum(1 for e in entries if e["status"] == "resolved"),
+            "skipped": sum(1 for e in entries if e["status"] == "skipped"),
+        }
+        # When a filter is active the counts above reflect only the filtered set;
+        # re-fetch totals unfiltered for the badge display.
+        all_entries = storage.list_captcha_queue()
+        total_counts = {
+            "pending": sum(1 for e in all_entries if e["status"] == "pending"),
+            "resolved": sum(1 for e in all_entries if e["status"] == "resolved"),
+            "skipped": sum(1 for e in all_entries if e["status"] == "skipped"),
+        }
+        storage.close()
+
+        return render_template(
+            "captcha_queue.html",
+            entries=entries,
+            counts=counts,
+            total_counts=total_counts,
+            filter_status=filter_status,
+        )
+
     return app

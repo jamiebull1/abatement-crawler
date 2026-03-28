@@ -7,6 +7,7 @@ import heapq
 import logging
 from dataclasses import dataclass, field
 
+from .captcha import CaptchaDetected
 from .config import CrawlerConfig
 from .extraction import LLMExtractor
 from .ingestion import DocumentIngester
@@ -99,7 +100,23 @@ class SnowballCrawler:
         """Fetch, ingest, extract, normalise, score, and store a document."""
         logger.info("Processing [depth=%d] %s", item.depth, item.url)
 
-        doc = self.ingester.ingest(item.url)
+        try:
+            doc = self.ingester.ingest(item.url, referer=item.source_url or None)
+        except CaptchaDetected as exc:
+            logger.warning(
+                "Captcha blocked %s (type=%s) — queued for human review.",
+                item.url,
+                exc.captcha_type,
+            )
+            self.storage.add_to_captcha_queue(
+                url=item.url,
+                captcha_type=exc.captcha_type,
+                notes=f"Source: {item.source_url}" if item.source_url else "",
+            )
+            # Do NOT mark as visited so the URL can be retried later
+            self._docs_processed += 1
+            return []
+
         self.storage.mark_url_visited(item.url, doc["metadata"].get("status_code", 0))
         self._docs_processed += 1
 

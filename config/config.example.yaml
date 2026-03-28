@@ -46,3 +46,5 @@ output_dir: ./output/
 requests_per_second: 2.0
 pdf_timeout_seconds: 30
 respect_robots_txt: true
+captcha_queue_enabled: true   # Queue captcha-blocked URLs for human review via CLI / web UI
+request_jitter: 0.5           # Random jitter added to rate delays (fraction of base delay; 0 = no jitter)

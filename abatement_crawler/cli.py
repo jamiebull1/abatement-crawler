@@ -81,6 +81,34 @@ def _cmd_sessions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_captcha_queue(args: argparse.Namespace) -> int:
+    from .config import CrawlerConfig  # noqa: PLC0415
+    from .storage import StorageManager  # noqa: PLC0415
+
+    config = CrawlerConfig.from_yaml(args.config)
+    storage = StorageManager(config.db_path)
+
+    if args.resolve:
+        storage.update_captcha_status(args.resolve, "resolved")
+        print(f"Marked as resolved: {args.resolve}")
+    elif args.skip:
+        storage.update_captcha_status(args.skip, "skipped")
+        print(f"Marked as skipped: {args.skip}")
+    else:
+        entries = storage.list_captcha_queue(status=args.status or None)
+        if not entries:
+            print("No captcha queue entries.")
+        else:
+            for e in entries:
+                print(
+                    f"[{e['status']:8s}] {e['captcha_type'] or 'unknown':15s}"
+                    f"  {e['detected_at']}  {e['url']}"
+                )
+
+    storage.close()
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from .config import CrawlerConfig  # noqa: PLC0415
     from .export import Exporter  # noqa: PLC0415
@@ -167,6 +195,23 @@ def main() -> None:
     )
     sessions_parser.add_argument("--config", required=True, help="Path to config YAML")
 
+    # captcha-queue sub-command
+    cq_parser = subparsers.add_parser(
+        "captcha-queue", help="Manage captcha-blocked URLs"
+    )
+    cq_parser.add_argument("--config", required=True, help="Path to config YAML")
+    cq_parser.add_argument(
+        "--status",
+        choices=["pending", "resolved", "skipped"],
+        help="Filter queue by status",
+    )
+    cq_parser.add_argument(
+        "--resolve", metavar="URL", help="Mark a URL as resolved"
+    )
+    cq_parser.add_argument(
+        "--skip", metavar="URL", help="Mark a URL as skipped"
+    )
+
     args = parser.parse_args()
 
     if args.command == "web":
@@ -177,6 +222,8 @@ def main() -> None:
         sys.exit(_cmd_export(args))
     elif args.command == "sessions":
         sys.exit(_cmd_sessions(args))
+    elif args.command == "captcha-queue":
+        sys.exit(_cmd_captcha_queue(args))
     else:
         parser.print_help()
         sys.exit(0)

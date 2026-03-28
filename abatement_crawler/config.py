@@ -36,6 +36,8 @@ class CrawlerConfig(BaseModel):
     requests_per_second: float = 2.0
     pdf_timeout_seconds: int = 30
     respect_robots_txt: bool = True
+    captcha_queue_enabled: bool = True
+    request_jitter: float = 0.5
 
     model_config = {"arbitrary_types_allowed": True}
 

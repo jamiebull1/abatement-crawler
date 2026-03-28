@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import io
 import logging
+import random
 import re
 import time
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from .captcha import CaptchaDetected, detect_captcha
 from .config import CrawlerConfig
+
+# Realistic browser user-agent strings rotated across requests
+_USER_AGENTS: list[str] = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +46,21 @@ class DocumentIngester:
     def __init__(self, config: CrawlerConfig) -> None:
         self.config = config
         self._rate_delay = 1.0 / max(config.requests_per_second, 0.1)
+        # Per-domain last-request timestamps for domain-level rate limiting
+        self._domain_last_request: dict[str, float] = {}
 
-    def ingest(self, url: str) -> dict[str, Any]:
+    def ingest(self, url: str, referer: str | None = None) -> dict[str, Any]:
         """Fetch and parse a document.
+
+        Args:
+            url: The URL to fetch.
+            referer: Optional Referer URL to include in request headers.
 
         Returns:
             Dict with keys: url, content (str), format, metadata (dict), links (list[str]).
+
+        Raises:
+            CaptchaDetected: If the response contains a captcha or bot-challenge page.
         """
         try:
             import requests  # noqa: PLC0415
@@ -47,15 +68,27 @@ class DocumentIngester:
             logger.error("requests library not available")
             return self._empty_result(url)
 
-        time.sleep(self._rate_delay)
+        # Per-domain rate limiting with random jitter to reduce bot fingerprinting
+        domain = urlparse(url).netloc
+        now = time.time()
+        last = self._domain_last_request.get(domain, 0.0)
+        wait = self._rate_delay - (now - last)
+        if wait > 0:
+            jitter = random.uniform(0, self._rate_delay * getattr(self.config, "request_jitter", 0.5))
+            time.sleep(wait + jitter)
+        self._domain_last_request[domain] = time.time()
 
         try:
-            headers = {
-                "User-Agent": (
-                    "AbatementCrawler/0.1 (carbon data research; "
-                    "contact: research@example.com)"
-                )
+            headers: dict[str, str] = {
+                "User-Agent": random.choice(_USER_AGENTS),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-GB,en;q=0.9,en-US;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
             }
+            if referer:
+                headers["Referer"] = referer
+
             response = requests.get(
                 url,
                 headers=headers,
@@ -63,9 +96,15 @@ class DocumentIngester:
                 allow_redirects=True,
             )
             response.raise_for_status()
+        except CaptchaDetected:
+            raise
         except Exception as exc:
             logger.warning("Failed to fetch %s: %s", url, exc)
             return self._empty_result(url)
+
+        captcha_type = detect_captcha(response)
+        if captcha_type:
+            raise CaptchaDetected(url=url, captcha_type=captcha_type)
 
         content_type = response.headers.get("content-type", "").lower()
         raw_bytes = response.content
