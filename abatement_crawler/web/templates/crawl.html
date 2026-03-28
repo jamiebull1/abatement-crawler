@@ -140,6 +140,44 @@
       </div>
     </div>
 
+    <!-- Synthesise card -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold" style="background-color:#f3eeff">
+        <span style="color:#6f42c1">&#9670; Run synthesis (Layer 4)</span>
+        <span class="spinner-border spinner-border-sm ms-2 text-purple" id="synth-spinner"
+              style="display:none;border-color:#6f42c1;border-right-color:transparent" role="status"></span>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-3" id="synth-status-dl">
+          <dt class="col-sm-4">Status</dt>
+          <dd class="col-sm-8" id="ss-message">{{ _synth_msg | default('No synthesis has been run yet.') }}</dd>
+          <dt class="col-sm-4">Synthesised records</dt>
+          <dd class="col-sm-8" id="ss-count">0</dd>
+          <dt class="col-sm-4">Archetypes processed</dt>
+          <dd class="col-sm-8" id="ss-archetypes">0</dd>
+        </dl>
+
+        <form method="post" action="/synthesise/start" id="synth-form">
+          <div class="mb-3">
+            <label class="form-label" for="synth-sector">Sector override
+              <span class="text-muted small">(leave blank to use config)</span>
+            </label>
+            <input type="text" class="form-control" id="synth-sector" name="sector"
+                   placeholder="e.g. fire_and_rescue_services">
+          </div>
+          <p class="small text-muted mb-3">
+            Synthesis fills gaps in extracted records using archetype typical ranges and
+            activity-intensity data. It operates on whatever records and fragments are
+            already in the database—run a crawl first.
+          </p>
+          <button type="submit" class="btn px-4" id="synth-btn"
+                  style="background-color:#6f42c1;color:#fff">
+            &#9670; Run synthesis
+          </button>
+        </form>
+      </div>
+    </div>
+
   </div>
 </div>
 {% endblock %}
@@ -207,6 +245,47 @@
     setTimeout(() => {
       if (!pollInterval) {
         pollInterval = setInterval(poll, 5000);
+      }
+    }, 2000);
+  });
+
+  // --- Synthesis polling ---
+  let synthPollInterval = null;
+
+  function updateSynthStatus(data) {
+    document.getElementById('ss-message').textContent = data.message;
+    document.getElementById('ss-count').textContent = data.synthesised_count;
+    document.getElementById('ss-archetypes').textContent = data.archetypes_processed;
+
+    const spinner = document.getElementById('synth-spinner');
+    const btn = document.getElementById('synth-btn');
+    if (data.running) {
+      spinner.style.display = 'inline-block';
+      btn.disabled = true;
+    } else {
+      spinner.style.display = 'none';
+      btn.disabled = false;
+      if (synthPollInterval) {
+        clearInterval(synthPollInterval);
+        synthPollInterval = null;
+      }
+    }
+  }
+
+  function pollSynth() {
+    fetch('/synthesise/status')
+      .then(r => r.json())
+      .then(updateSynthStatus)
+      .catch(console.error);
+  }
+
+  // Kick off polling if synthesis is already running (e.g. after redirect)
+  pollSynth();
+
+  document.getElementById('synth-form').addEventListener('submit', () => {
+    setTimeout(() => {
+      if (!synthPollInterval) {
+        synthPollInterval = setInterval(pollSynth, 5000);
       }
     }, 2000);
   });

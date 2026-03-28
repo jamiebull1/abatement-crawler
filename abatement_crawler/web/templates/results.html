@@ -33,6 +33,13 @@
     <input type="number" class="form-control" name="min_quality" value="{{ min_quality }}"
            placeholder="Min Q" min="0" max="1" step="0.05" title="Minimum quality score">
   </div>
+  <div class="col-sm-2">
+    <select class="form-select" name="synthesised" title="Synthesised filter">
+      <option value="all" {% if synthesised_filter == 'all' %}selected{% endif %}>All records</option>
+      <option value="no"  {% if synthesised_filter == 'no'  %}selected{% endif %}>Extracted only</option>
+      <option value="yes" {% if synthesised_filter == 'yes' %}selected{% endif %}>Synthesised only</option>
+    </select>
+  </div>
   <div class="col-sm-2 d-flex gap-2">
     <button type="submit" class="btn btn-primary w-100">Filter</button>
     <a href="{{ url_for('results') }}" class="btn btn-outline-secondary w-100">Clear</a>
@@ -62,6 +69,9 @@
           <a href="{{ url_for('result_detail', record_id=r.record_id) }}" class="fw-semibold text-decoration-none">
             {{ r.measure_name }}
           </a>
+          {% if r.is_synthesised %}
+          <span class="badge ms-1" style="background-color:#6f42c1;color:#fff" title="Synthesised record">synth</span>
+          {% endif %}
         </td>
         <td><span class="badge text-bg-info">{{ r.abatement_category }}</span></td>
         <td>{{ r.sector }}</td>
@@ -116,21 +126,21 @@
   <ul class="pagination justify-content-center">
     <li class="page-item {% if page <= 1 %}disabled{% endif %}">
       <a class="page-link"
-         href="{{ url_for('results', q=q, geography=geography, sector=sector, category=category, min_quality=min_quality, page=page-1) }}">
+         href="{{ url_for('results', q=q, geography=geography, sector=sector, category=category, min_quality=min_quality, synthesised=synthesised_filter, page=page-1) }}">
         &laquo; Previous
       </a>
     </li>
     {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
     <li class="page-item {% if p == page %}active{% endif %}">
       <a class="page-link"
-         href="{{ url_for('results', q=q, geography=geography, sector=sector, category=category, min_quality=min_quality, page=p) }}">
+         href="{{ url_for('results', q=q, geography=geography, sector=sector, category=category, min_quality=min_quality, synthesised=synthesised_filter, page=p) }}">
         {{ p }}
       </a>
     </li>
     {% endfor %}
     <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
       <a class="page-link"
-         href="{{ url_for('results', q=q, geography=geography, sector=sector, category=category, min_quality=min_quality, page=page+1) }}">
+         href="{{ url_for('results', q=q, geography=geography, sector=sector, category=category, min_quality=min_quality, synthesised=synthesised_filter, page=page+1) }}">
         Next &raquo;
       </a>
     </li>

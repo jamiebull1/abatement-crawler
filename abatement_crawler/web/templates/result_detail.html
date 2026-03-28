@@ -17,6 +17,9 @@
   <span class="badge text-bg-info me-1">{{ record.abatement_category }}</span>
   <span class="badge text-bg-secondary me-1">{{ record.sector }}</span>
   <span class="badge text-bg-light text-dark border">{{ record.geography }}</span>
+  {% if record.is_synthesised %}
+  <span class="badge ms-1" style="background-color:#6f42c1;color:#fff">Synthesised</span>
+  {% endif %}
 </p>
 
 <div class="row g-4">
@@ -242,6 +245,51 @@
 
   </div>
 </div>
+
+<!-- Synthesis panel -->
+{% if record.is_synthesised %}
+<div class="card mb-4 border-purple" style="border-color:#6f42c1!important">
+  <div class="card-header fw-semibold" style="background-color:#f3eeff">
+    <span style="color:#6f42c1">&#9670; Synthesis details</span>
+  </div>
+  <div class="card-body">
+    <dl class="row small mb-0">
+      {% if record.archetype_slug %}
+      <dt class="col-sm-3">Archetype</dt>
+      <dd class="col-sm-9"><code>{{ record.archetype_slug }}</code></dd>
+      {% endif %}
+    </dl>
+
+    {% if record.synthesis_sources %}
+    <p class="mb-1 mt-2"><strong>Sources used in synthesis</strong></p>
+    <ul class="mb-2 small">
+      {% for src in record.synthesis_sources %}
+      <li class="text-break">
+        {% if src.startswith('http') %}
+        <a href="{{ src }}" target="_blank" rel="noopener">{{ src }}</a>
+        {% else %}
+        {{ src }}
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if record.synthesis_assumptions %}
+    <p class="mb-1"><strong>Assumptions &amp; inferences</strong></p>
+    <ul class="mb-0 small">
+      {% for a in record.synthesis_assumptions %}
+      <li>{{ a }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if not record.synthesis_sources and not record.synthesis_assumptions %}
+    <span class="text-muted small">No synthesis detail recorded.</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 
 <!-- Raw excerpt -->
 {% if record.raw_excerpt %}

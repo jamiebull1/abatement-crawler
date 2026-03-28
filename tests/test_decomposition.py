@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from abatement_crawler.decomposition import SectorDecomposer
 from abatement_crawler.models import (
     AbatementArchetype,
     AssetGroup,
+    ScopeConfig,
     SectorDecomposition,
 )
 from abatement_crawler.search import QueryBuilder
-from abatement_crawler.models import ScopeConfig
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
