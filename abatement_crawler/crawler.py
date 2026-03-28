@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import uuid
-import dataclasses
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from .config import CrawlerConfig
 from .export import Exporter
@@ -13,7 +13,6 @@ from .extraction import LLMExtractor
 from .ingestion import DocumentIngester
 from .models import AbatementRecord
 from .normalisation import Normaliser
-from .quality import score_quality
 from .relevance import score_relevance
 from .search import QueryBuilder, SearchClient
 from .snowball import SnowballCrawler

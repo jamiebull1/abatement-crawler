@@ -5,7 +5,6 @@ from __future__ import annotations
 import heapq
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .config import CrawlerConfig
 from .extraction import LLMExtractor

@@ -1,6 +1,5 @@
 """Tests for quality scoring."""
 
-import pytest
 
 from abatement_crawler.models import AbatementRecord
 from abatement_crawler.quality import score_quality

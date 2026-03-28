@@ -3,8 +3,6 @@
 import re
 from datetime import date
 
-import pytest
-
 from abatement_crawler.models import AbatementRecord, ScopeConfig
 
 

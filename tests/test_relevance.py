@@ -1,9 +1,8 @@
 """Tests for relevance scoring."""
 
-import pytest
 
 from abatement_crawler.models import ScopeConfig
-from abatement_crawler.relevance import score_relevance, COST_TERMS, QUALITY_DOMAINS
+from abatement_crawler.relevance import COST_TERMS, QUALITY_DOMAINS, score_relevance
 
 
 def make_scope(**kwargs) -> ScopeConfig:
