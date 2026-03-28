@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Resolve Blocked URL — Abatement Crawler{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    <h1 class="mb-1">Resolve blocked URL</h1>
+    <p class="text-muted mb-4">
+      This URL was blocked during the crawl. Visit the page, download the file,
+      then upload it here for extraction — or mark it as not relevant.
+    </p>
+
+    <!-- Blocked URL card -->
+    <div class="card mb-4 border-warning">
+      <div class="card-header fw-semibold text-warning-emphasis bg-warning-subtle">
+        Blocked URL
+      </div>
+      <div class="card-body">
+        <p class="mb-2 text-break font-monospace small">{{ url }}</p>
+        <a href="{{ url }}" target="_blank" rel="noopener noreferrer"
+           class="btn btn-outline-primary">
+          Open page in new tab &rarr;
+        </a>
+        <p class="text-muted small mt-2 mb-0">
+          Solve the captcha / log in, then download the file and upload it below.
+        </p>
+      </div>
+    </div>
+
+    <!-- Upload form -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Upload downloaded file for extraction</div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          <input type="hidden" name="url" value="{{ url }}">
+          <input type="hidden" name="action" value="upload">
+
+          <div class="mb-3">
+            <label class="form-label" for="file">
+              File
+              <span class="text-muted small">(PDF, HTML, DOCX, XLSX, JSON)</span>
+            </label>
+            <input class="form-control" type="file" id="file" name="file"
+                   accept=".pdf,.html,.htm,.docx,.xlsx,.xls,.json">
+          </div>
+
+          <button type="submit" class="btn btn-success px-4" id="upload-btn">
+            Upload &amp; extract
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Not relevant -->
+    <div class="card border-secondary">
+      <div class="card-body d-flex align-items-center justify-content-between">
+        <div>
+          <strong>Not relevant?</strong>
+          <span class="text-muted small ms-2">
+            Mark as skipped — this URL will not be retried in future crawls.
+          </span>
+        </div>
+        <form method="post">
+          <input type="hidden" name="url" value="{{ url }}">
+          <input type="hidden" name="action" value="skip">
+          <button type="submit" class="btn btn-outline-secondary">
+            Mark as not relevant
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="mt-3">
+      <a href="{{ url_for('captcha_queue_view') }}" class="btn btn-link ps-0">
+        &larr; Back to captcha queue
+      </a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelector('form .btn-success').closest('form').addEventListener('submit', function () {
+    const btn = document.getElementById('upload-btn');
+    btn.disabled = true;
+    btn.textContent = 'Extracting… this may take a moment';
+  });
+</script>
+{% endblock %}

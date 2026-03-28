@@ -12,9 +12,16 @@
 
 <p class="text-muted">
   URLs blocked by captchas or bot-challenges during the crawl.
-  Resolve a URL after manually verifying its content is accessible,
-  or skip it to exclude it from future retries.
+  Click <strong>Resolve</strong> to open the URL, download the file, and upload it for extraction.
+  Click <strong>Skip</strong> to exclude it from future retries.
 </p>
+
+{% if request.args.get('resolved') is not none %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+  Resolved — extracted <strong>{{ request.args.get('resolved') }}</strong> record(s).
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
 
 {# Filter bar #}
 <div class="mb-3 d-flex gap-2 flex-wrap">
@@ -61,11 +68,8 @@
         <td class="small text-muted">{{ entry.notes or '' }}</td>
         <td class="text-nowrap">
           {% if entry.status != 'resolved' %}
-          <form method="post" class="d-inline">
-            <input type="hidden" name="url" value="{{ entry.url }}">
-            <input type="hidden" name="action" value="resolve">
-            <button type="submit" class="btn btn-sm btn-outline-success">Resolve</button>
-          </form>
+          <a href="{{ url_for('captcha_resolve', url=entry.url) }}"
+             class="btn btn-sm btn-outline-success">Resolve</a>
           {% endif %}
           {% if entry.status != 'skipped' %}
           <form method="post" class="d-inline ms-1">

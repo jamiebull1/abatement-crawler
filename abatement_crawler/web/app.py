@@ -376,4 +376,66 @@ def create_app(config_path: str | None = None) -> Flask:
             filter_status=filter_status,
         )
 
+    @app.route("/captcha-queue/resolve", methods=["GET", "POST"])
+    def captcha_resolve():
+        from ..storage import StorageManager  # noqa: PLC0415
+
+        blocked_url = request.args.get("url") or request.form.get("url", "")
+        if not blocked_url:
+            return redirect(url_for("captcha_queue_view"))
+
+        if request.method == "GET":
+            return render_template("captcha_resolve.html", url=blocked_url)
+
+        action = request.form.get("action", "")
+        config = _load_config()
+        storage = StorageManager(config.db_path)
+
+        if action == "skip":
+            storage.update_captcha_status(blocked_url, "skipped")
+            storage.close()
+            return redirect(url_for("captcha_queue_view"))
+
+        uploaded = request.files.get("file")
+        if action == "upload" and uploaded and uploaded.filename:
+            from ..extraction import LLMExtractor  # noqa: PLC0415
+            from ..ingestion import DocumentIngester  # noqa: PLC0415
+            from ..models import AbatementRecord  # noqa: PLC0415
+            from ..normalisation import Normaliser  # noqa: PLC0415
+            from ..quality import score_quality  # noqa: PLC0415
+
+            ingester = DocumentIngester(config)
+            extractor = LLMExtractor(config)
+            normaliser = Normaliser(config.base_currency, config.base_year)
+
+            raw = uploaded.read()
+            fmt = ingester._detect_format(uploaded.filename, uploaded.content_type or "")
+            parse = {
+                "pdf": ingester._ingest_pdf,
+                "xlsx": ingester._ingest_excel,
+                "xls": ingester._ingest_excel,
+                "docx": ingester._ingest_docx,
+                "json": ingester._ingest_json,
+            }.get(fmt, ingester._ingest_html)
+            text = parse(blocked_url, raw)
+
+            records_saved = 0
+            if text:
+                for chunk in ingester.chunk_text(text):
+                    for record in extractor.extract(chunk, source_url=blocked_url, source_title=uploaded.filename):
+                        record = normaliser.normalise_record(record)
+                        quality, flags = score_quality(record)
+                        data = record.model_dump()
+                        data["quality_score"] = quality
+                        data["quality_flags"] = list(set(record.quality_flags + flags))
+                        storage.save_record(AbatementRecord(**data))
+                        records_saved += 1
+
+            storage.update_captcha_status(blocked_url, "resolved")
+            storage.close()
+            return redirect(url_for("captcha_queue_view") + f"?resolved={records_saved}")
+
+        storage.close()
+        return redirect(url_for("captcha_resolve") + f"?url={blocked_url}")
+
     return app
