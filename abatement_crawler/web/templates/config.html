@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}Configuration — Abatement Crawler{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+
+    <h1 class="mb-1">Configuration</h1>
+    <p class="text-muted mb-4">
+      Settings are saved to <code>{{ config_path }}</code>.
+      Sensitive keys are never echoed back; leave the field blank to keep the
+      stored value.
+    </p>
+
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    {% if saved %}
+    <div class="alert alert-success">Configuration saved successfully.</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('config_save') }}" novalidate>
+
+      <!-- ── Scope ─────────────────────────────────────────────────── -->
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">Scope</div>
+        <div class="card-body">
+          <div class="row g-3">
+
+            <div class="col-md-6">
+              <label class="form-label" for="industry">Industry</label>
+              <input type="text" class="form-control" id="industry" name="industry"
+                     value="{{ config.scope.industry or '' }}"
+                     placeholder="e.g. steel, cement, transport">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="process">Process</label>
+              <input type="text" class="form-control" id="process" name="process"
+                     value="{{ config.scope.process or '' }}"
+                     placeholder="e.g. electric arc furnace">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="asset_type">Asset type</label>
+              <input type="text" class="form-control" id="asset_type" name="asset_type"
+                     value="{{ config.scope.asset_type or '' }}"
+                     placeholder="e.g. furnace, boiler">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="company">Company <span class="text-muted">(optional)</span></label>
+              <input type="text" class="form-control" id="company" name="company"
+                     value="{{ config.scope.company or '' }}"
+                     placeholder="e.g. TATA Steel">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="geography">
+                Geographies
+                <span class="text-muted small">(comma-separated)</span>
+              </label>
+              <input type="text" class="form-control" id="geography" name="geography"
+                     value="{{ config.scope.geography | join(', ') }}"
+                     placeholder="e.g. UK, EU, USA">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="sectors">
+                Sectors
+                <span class="text-muted small">(comma-separated)</span>
+              </label>
+              <input type="text" class="form-control" id="sectors" name="sectors"
+                     value="{{ config.scope.sectors | join(', ') }}"
+                     placeholder="e.g. industry, manufacturing">
+            </div>
+
+            <div class="col-12">
+              <label class="form-label" for="abatement_types">
+                Abatement types
+                <span class="text-muted small">(comma-separated)</span>
+              </label>
+              <input type="text" class="form-control" id="abatement_types"
+                     name="abatement_types"
+                     value="{{ config.scope.abatement_types | join(', ') }}"
+                     placeholder="e.g. fuel switch, efficiency, carbon capture">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="year_range_start">Year range — from</label>
+              <input type="number" class="form-control" id="year_range_start"
+                     name="year_range_start"
+                     value="{{ config.scope.year_range[0] }}" min="1990" max="2100">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="year_range_end">Year range — to</label>
+              <input type="number" class="form-control" id="year_range_end"
+                     name="year_range_end"
+                     value="{{ config.scope.year_range[1] }}" min="1990" max="2100">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="languages">
+                Languages
+                <span class="text-muted small">(comma-separated)</span>
+              </label>
+              <input type="text" class="form-control" id="languages" name="languages"
+                     value="{{ config.scope.languages | join(', ') }}"
+                     placeholder="e.g. en, de">
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Search API ─────────────────────────────────────────────── -->
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">Search API</div>
+        <div class="card-body">
+          <div class="row g-3">
+
+            <div class="col-md-4">
+              <label class="form-label" for="search_api">Search provider</label>
+              <select class="form-select" id="search_api" name="search_api">
+                {% for opt in ['serpapi', 'google_cse', 'bing'] %}
+                <option value="{{ opt }}" {% if config.search_api == opt %}selected{% endif %}>
+                  {{ opt }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-8">
+              <label class="form-label" for="search_api_key">
+                Search API key
+                {% if config.search_api_key %}
+                  <span class="key-set small">✔ set</span>
+                {% else %}
+                  <span class="key-unset small">✘ not set</span>
+                {% endif %}
+              </label>
+              <input type="password" class="form-control" id="search_api_key"
+                     name="search_api_key"
+                     placeholder="{% if config.search_api_key %}Leave blank to keep existing key{% else %}Enter your search API key{% endif %}">
+              <div class="form-text">
+                Also readable from the <code>SEARCH_API_KEY</code> environment variable.
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="max_search_queries">Max search queries</label>
+              <input type="number" class="form-control" id="max_search_queries"
+                     name="max_search_queries" value="{{ config.max_search_queries }}" min="1">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="results_per_query">Results per query</label>
+              <input type="number" class="form-control" id="results_per_query"
+                     name="results_per_query" value="{{ config.results_per_query }}" min="1" max="100">
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── LLM ───────────────────────────────────────────────────── -->
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">LLM extraction (Anthropic Claude)</div>
+        <div class="card-body">
+          <div class="row g-3">
+
+            <div class="col-md-6">
+              <label class="form-label" for="llm_model">Model</label>
+              <input type="text" class="form-control" id="llm_model" name="llm_model"
+                     value="{{ config.llm_model }}"
+                     placeholder="e.g. claude-sonnet-4-20250514">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="llm_api_key">
+                Anthropic API key
+                {% if config.llm_api_key %}
+                  <span class="key-set small">✔ set</span>
+                {% else %}
+                  <span class="key-unset small">✘ not set</span>
+                {% endif %}
+              </label>
+              <input type="password" class="form-control" id="llm_api_key"
+                     name="llm_api_key"
+                     placeholder="{% if config.llm_api_key %}Leave blank to keep existing key{% else %}Enter your Anthropic API key{% endif %}">
+              <div class="form-text">
+                Also readable from the <code>ANTHROPIC_API_KEY</code> environment variable.
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="extraction_temperature">Extraction temperature</label>
+              <input type="number" class="form-control" id="extraction_temperature"
+                     name="extraction_temperature" value="{{ config.extraction_temperature }}"
+                     min="0" max="1" step="0.1">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="max_retries">Max retries</label>
+              <input type="number" class="form-control" id="max_retries"
+                     name="max_retries" value="{{ config.max_retries }}" min="0">
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Crawler settings ──────────────────────────────────────── -->
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">Crawler settings</div>
+        <div class="card-body">
+          <div class="row g-3">
+
+            <div class="col-md-4">
+              <label class="form-label" for="max_depth">Max crawl depth</label>
+              <input type="number" class="form-control" id="max_depth"
+                     name="max_depth" value="{{ config.max_depth }}" min="1">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="max_total_documents">Max total documents</label>
+              <input type="number" class="form-control" id="max_total_documents"
+                     name="max_total_documents" value="{{ config.max_total_documents }}" min="1">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="relevance_threshold">Relevance threshold</label>
+              <input type="number" class="form-control" id="relevance_threshold"
+                     name="relevance_threshold" value="{{ config.relevance_threshold }}"
+                     min="0" max="1" step="0.05">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="reflection_interval">Reflection interval</label>
+              <input type="number" class="form-control" id="reflection_interval"
+                     name="reflection_interval" value="{{ config.reflection_interval }}" min="1">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="requests_per_second">Requests per second</label>
+              <input type="number" class="form-control" id="requests_per_second"
+                     name="requests_per_second" value="{{ config.requests_per_second }}"
+                     min="0.1" step="0.1">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="pdf_timeout_seconds">PDF timeout (s)</label>
+              <input type="number" class="form-control" id="pdf_timeout_seconds"
+                     name="pdf_timeout_seconds" value="{{ config.pdf_timeout_seconds }}" min="5">
+            </div>
+
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="respect_robots_txt"
+                       name="respect_robots_txt"
+                       {% if config.respect_robots_txt %}checked{% endif %}>
+                <label class="form-check-label" for="respect_robots_txt">
+                  Respect <code>robots.txt</code>
+                </label>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Output & normalisation ────────────────────────────────── -->
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">Output &amp; normalisation</div>
+        <div class="card-body">
+          <div class="row g-3">
+
+            <div class="col-md-4">
+              <label class="form-label" for="base_currency">Base currency</label>
+              <input type="text" class="form-control" id="base_currency"
+                     name="base_currency" value="{{ config.base_currency }}"
+                     placeholder="e.g. GBP">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="base_year">Base year</label>
+              <input type="number" class="form-control" id="base_year"
+                     name="base_year" value="{{ config.base_year }}" min="2000" max="2100">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label" for="min_quality_for_export">Min quality for export</label>
+              <input type="number" class="form-control" id="min_quality_for_export"
+                     name="min_quality_for_export"
+                     value="{{ config.min_quality_for_export }}" min="0" max="1" step="0.05">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="db_path">Database path</label>
+              <input type="text" class="form-control" id="db_path"
+                     name="db_path" value="{{ config.db_path }}">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label" for="output_dir">Output directory</label>
+              <input type="text" class="form-control" id="output_dir"
+                     name="output_dir" value="{{ config.output_dir }}">
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary px-4 mb-4">
+        💾 Save configuration
+      </button>
+
+    </form>
+  </div>
+</div>
+{% endblock %}

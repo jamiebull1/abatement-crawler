@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Abatement Crawler — Home{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+
+    <h1 class="mb-1">🌱 Abatement Crawler</h1>
+    <p class="lead text-muted mb-4">
+      Automatically discover, extract, and organise data on carbon abatement
+      measures from web sources.
+    </p>
+
+    <!-- What is this tool -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">What is this tool?</div>
+      <div class="card-body">
+        <p>
+          The <strong>Abatement Crawler</strong> is a web crawler that searches
+          the internet for documents describing carbon abatement measures —
+          technologies and practices for reducing greenhouse gas emissions. It
+          uses AI to extract structured cost and carbon-performance data, then
+          stores everything in a searchable local database.
+        </p>
+        <p class="mb-0">Core capabilities:</p>
+        <ul class="mb-0">
+          <li><strong>Multi-source search</strong> — SerpAPI, Google Custom Search Engine, or Bing</li>
+          <li><strong>Multi-format ingestion</strong> — HTML, PDF, Excel, DOCX, JSON</li>
+          <li><strong>AI-powered extraction</strong> — Anthropic Claude extracts structured records</li>
+          <li><strong>Quality scoring</strong> — ranks records by evidence quality</li>
+          <li><strong>Data normalisation</strong> — currency, geography and units standardisation</li>
+          <li><strong>Flexible export</strong> — JSONL, CSV, Parquet or Markdown report</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Getting started -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Getting started</div>
+      <div class="card-body">
+        <ol class="mb-0">
+          <li class="mb-2">
+            <strong>Set your API keys</strong> — open
+            <a href="{{ url_for('config_view') }}">Configuration</a> and enter
+            your Anthropic API key (for LLM extraction) and your Search API key.
+          </li>
+          <li class="mb-2">
+            <strong>Define your scope</strong> — specify the industry, process,
+            geographies and abatement types you want to collect data on.
+          </li>
+          <li class="mb-2">
+            <strong>Run a crawl</strong> — go to the
+            <a href="{{ url_for('crawl_view') }}">Crawl</a> page and start a
+            crawl in <em>search</em> mode (automatic query building) or
+            <em>seed</em> mode (from a list of URLs you provide).
+          </li>
+          <li class="mb-0">
+            <strong>Explore results</strong> — browse and filter extracted records
+            on the <a href="{{ url_for('results') }}">Results</a> page, or export
+            them from the CLI.
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Crawl modes -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Crawl modes</div>
+      <div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-3">Search mode <span class="badge text-bg-secondary">default</span></dt>
+          <dd class="col-sm-9">
+            Automatically builds search queries from your scope configuration and
+            uses a search API to find relevant documents.  The crawler then
+            follows links in a priority queue, preferring high-quality domains.
+          </dd>
+          <dt class="col-sm-3">Seed mode</dt>
+          <dd class="col-sm-9 mb-0">
+            Starts from a list of URLs you provide. Useful when you already have
+            specific reports or data sources you want to extract data from.
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    <!-- API keys -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">API keys required</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Key</th>
+              <th>Purpose</th>
+              <th>Where to obtain</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Anthropic API key</code></td>
+              <td>LLM extraction via Claude</td>
+              <td><a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a></td>
+            </tr>
+            <tr>
+              <td><code>Search API key</code></td>
+              <td>Web search (SerpAPI / Google CSE / Bing)</td>
+              <td>
+                <a href="https://serpapi.com" target="_blank" rel="noopener">serpapi.com</a> ·
+                <a href="https://programmablesearchengine.google.com" target="_blank" rel="noopener">Google CSE</a> ·
+                <a href="https://www.microsoft.com/en-us/bing/apis/bing-web-search-api" target="_blank" rel="noopener">Bing</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer text-muted small">
+        Keys can also be supplied via the environment variables
+        <code>ANTHROPIC_API_KEY</code> and <code>SEARCH_API_KEY</code>.
+      </div>
+    </div>
+
+    <!-- CLI usage -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">CLI usage</div>
+      <div class="card-body">
+        <p class="mb-2 text-muted small">All functionality is also available from the command line:</p>
+        <pre class="bg-light rounded p-3 mb-0"><code># Run in search mode (default)
+abatement-crawler crawl --config config/config.yaml --mode search
+
+# Run in seed mode
+abatement-crawler crawl --config config/config.yaml --mode seed \
+  --seed-urls https://example.com/report.pdf
+
+# Export results
+abatement-crawler export --config config/config.yaml --format csv
+abatement-crawler export --config config/config.yaml --format jsonl --min-quality 0.5
+
+# Launch the web UI
+abatement-crawler web --config config/config.yaml</code></pre>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

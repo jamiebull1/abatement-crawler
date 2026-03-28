@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Results — Abatement Crawler{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Results</h1>
+<p class="text-muted mb-3">
+  {% if total %}{{ total }} record{% if total != 1 %}s{% endif %} found{% if q or geography or sector or min_quality|float > 0 %} (filtered){% endif %}.{% else %}No records found.{% endif %}
+</p>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<!-- Search/filter bar -->
+<form method="get" action="{{ url_for('results') }}" class="row g-2 mb-4">
+  <div class="col-sm-4">
+    <input type="search" class="form-control" name="q" value="{{ q }}"
+           placeholder="Search measure name / category…">
+  </div>
+  <div class="col-sm-2">
+    <input type="text" class="form-control" name="geography" value="{{ geography }}"
+           placeholder="Geography…">
+  </div>
+  <div class="col-sm-2">
+    <input type="text" class="form-control" name="sector" value="{{ sector }}"
+           placeholder="Sector…">
+  </div>
+  <div class="col-sm-2">
+    <input type="number" class="form-control" name="min_quality" value="{{ min_quality }}"
+           placeholder="Min quality" min="0" max="1" step="0.05">
+  </div>
+  <div class="col-sm-2 d-flex gap-2">
+    <button type="submit" class="btn btn-primary w-100">Filter</button>
+    <a href="{{ url_for('results') }}" class="btn btn-outline-secondary w-100">Clear</a>
+  </div>
+</form>
+
+{% if records %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-dark">
+      <tr>
+        <th>Measure</th>
+        <th>Category</th>
+        <th>Sector</th>
+        <th>Geography</th>
+        <th>MAC ({{ records[0].currency if records else '' }})</th>
+        <th>CAPEX</th>
+        <th>Year</th>
+        <th>Quality</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>
+          <a href="{{ url_for('result_detail', record_id=r.record_id) }}" class="fw-semibold text-decoration-none">
+            {{ r.measure_name }}
+          </a>
+        </td>
+        <td><span class="badge text-bg-info">{{ r.abatement_category }}</span></td>
+        <td>{{ r.sector }}</td>
+        <td>{{ r.geography }}</td>
+        <td>
+          {% if r.mac is not none %}
+            {{ "%.1f"|format(r.mac) }}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.capex is not none %}
+            {{ "%.0f"|format(r.capex) }}
+            {% if r.capex_unit %}<small class="text-muted">{{ r.capex_unit }}</small>{% endif %}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>{{ r.publication_year }}</td>
+        <td>
+          {% set qs = r.quality_score %}
+          {% if qs >= 0.7 %}
+            <span class="badge text-bg-success quality-badge">{{ "%.2f"|format(qs) }}</span>
+          {% elif qs >= 0.4 %}
+            <span class="badge text-bg-warning quality-badge">{{ "%.2f"|format(qs) }}</span>
+          {% else %}
+            <span class="badge text-bg-danger quality-badge">{{ "%.2f"|format(qs) }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.source_url %}
+            <a href="{{ r.source_url }}" target="_blank" rel="noopener"
+               class="text-truncate d-inline-block" style="max-width:160px"
+               title="{{ r.source_title or r.source_url }}">
+              {{ r.source_title or r.source_url }}
+            </a>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% set total_pages = ((total - 1) // per_page + 1) if total > 0 else 1 %}
+{% if total_pages > 1 %}
+<nav aria-label="Results pagination">
+  <ul class="pagination justify-content-center">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+      <a class="page-link"
+         href="{{ url_for('results', q=q, geography=geography, sector=sector, min_quality=min_quality, page=page-1) }}">
+        &laquo; Previous
+      </a>
+    </li>
+    {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+    <li class="page-item {% if p == page %}active{% endif %}">
+      <a class="page-link"
+         href="{{ url_for('results', q=q, geography=geography, sector=sector, min_quality=min_quality, page=p) }}">
+        {{ p }}
+      </a>
+    </li>
+    {% endfor %}
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+      <a class="page-link"
+         href="{{ url_for('results', q=q, geography=geography, sector=sector, min_quality=min_quality, page=page+1) }}">
+        Next &raquo;
+      </a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="alert alert-secondary">
+  No records match your filters. Try adjusting the search or
+  <a href="{{ url_for('crawl_view') }}">run a crawl</a> first.
+</div>
+{% endif %}
+
+{% endblock %}

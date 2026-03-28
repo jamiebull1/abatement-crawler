@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}Crawl — Abatement Crawler{% endblock %}
+
+{% block head %}
+<style>
+  #status-card .status-msg { font-size: 1.1rem; }
+  #spinner { display: none; }
+  #spinner.running { display: inline-block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    <h1 class="mb-1">Run a crawl</h1>
+    <p class="text-muted mb-4">
+      Start a new crawl from this page. Make sure you have saved valid API keys
+      in <a href="{{ url_for('config_view') }}">Configuration</a> first.
+    </p>
+
+    <!-- Current status card -->
+    <div class="card mb-4" id="status-card">
+      <div class="card-header fw-semibold">
+        Crawl status
+        <span class="spinner-border spinner-border-sm ms-2 text-primary {% if status.running %}running{% endif %}"
+              id="spinner" role="status" aria-label="Running"></span>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0" id="status-dl">
+          <dt class="col-sm-4">Status</dt>
+          <dd class="col-sm-8 status-msg" id="s-message">
+            {% if status.running %}
+              <span class="text-primary">🔄 {{ status.message }}</span>
+            {% elif status.error %}
+              <span class="text-danger">❌ {{ status.message }}</span>
+            {% else %}
+              <span class="text-secondary">{{ status.message }}</span>
+            {% endif %}
+          </dd>
+
+          <dt class="col-sm-4">Records found</dt>
+          <dd class="col-sm-8" id="s-records">{{ status.records_found }}</dd>
+
+          <dt class="col-sm-4">Documents processed</dt>
+          <dd class="col-sm-8" id="s-docs">{{ status.documents_processed }}</dd>
+
+          {% if status.error %}
+          <dt class="col-sm-4">Error</dt>
+          <dd class="col-sm-8 text-danger" id="s-error">{{ status.error }}</dd>
+          {% else %}
+          <dd class="d-none" id="s-error"></dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+    <!-- Start crawl form -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Start a new crawl</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('crawl_start') }}" id="crawl-form">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Crawl mode</label>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <div class="card h-100 border-primary">
+                  <div class="card-body">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="mode"
+                             id="mode-search" value="search" checked>
+                      <label class="form-check-label fw-semibold" for="mode-search">
+                        🔍 Search mode
+                      </label>
+                    </div>
+                    <p class="mb-0 small text-muted mt-1">
+                      Automatically builds queries from your scope configuration
+                      and searches the web. No seed URLs required.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="mode"
+                             id="mode-seed" value="seed">
+                      <label class="form-check-label fw-semibold" for="mode-seed">
+                        🌱 Seed mode
+                      </label>
+                    </div>
+                    <p class="mb-0 small text-muted mt-1">
+                      Starts from a list of URLs you provide below.
+                      Useful for targeted extraction from known sources.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3" id="seed-urls-section" style="display:none">
+            <label class="form-label" for="seed_urls">
+              Seed URLs
+              <span class="text-muted small">(one per line)</span>
+            </label>
+            <textarea class="form-control font-monospace" id="seed_urls" name="seed_urls"
+                      rows="5"
+                      placeholder="https://example.com/report.pdf&#10;https://example.com/data.xlsx"></textarea>
+          </div>
+
+          <div class="alert alert-info small mb-3">
+            <strong>Note:</strong> The crawl runs in the background.
+            This page will poll for status updates every 5 seconds.
+            You can navigate away and return to check progress.
+          </div>
+
+          <button type="submit" class="btn btn-success px-4"
+                  {% if status.running %}disabled{% endif %}
+                  id="start-btn">
+            ▶ Start crawl
+          </button>
+          {% if status.running %}
+          <span class="text-muted ms-2 small">A crawl is already running.</span>
+          {% endif %}
+
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Show/hide seed URLs section
+  document.querySelectorAll('input[name="mode"]').forEach(el => {
+    el.addEventListener('change', () => {
+      const section = document.getElementById('seed-urls-section');
+      section.style.display = el.value === 'seed' ? 'block' : 'none';
+    });
+  });
+
+  // Poll status every 5s when running
+  let pollInterval = null;
+
+  function updateStatus(data) {
+    document.getElementById('s-message').innerHTML = data.running
+      ? `<span class="text-primary">🔄 ${data.message}</span>`
+      : data.error
+        ? `<span class="text-danger">❌ ${data.message}</span>`
+        : `<span class="text-secondary">${data.message}</span>`;
+    document.getElementById('s-records').textContent = data.records_found;
+    document.getElementById('s-docs').textContent = data.documents_processed;
+
+    const errEl = document.getElementById('s-error');
+    if (data.error) {
+      errEl.textContent = data.error;
+      errEl.classList.remove('d-none');
+    } else {
+      errEl.classList.add('d-none');
+    }
+
+    const spinner = document.getElementById('spinner');
+    const startBtn = document.getElementById('start-btn');
+    if (data.running) {
+      spinner.classList.add('running');
+      startBtn.disabled = true;
+    } else {
+      spinner.classList.remove('running');
+      startBtn.disabled = false;
+      // Stop polling once finished
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    }
+  }
+
+  function poll() {
+    fetch("{{ url_for('crawl_status') }}")
+      .then(r => r.json())
+      .then(updateStatus)
+      .catch(console.error);
+  }
+
+  // Start polling if already running on page load
+  {% if status.running %}
+  pollInterval = setInterval(poll, 5000);
+  {% endif %}
+
+  // Start polling on form submit
+  document.getElementById('crawl-form').addEventListener('submit', () => {
+    setTimeout(() => {
+      if (!pollInterval) {
+        pollInterval = setInterval(poll, 5000);
+      }
+    }, 2000);
+  });
+</script>
+{% endblock %}
