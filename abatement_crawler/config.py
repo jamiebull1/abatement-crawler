@@ -62,6 +62,51 @@ class CrawlerConfig(BaseModel):
 
         return cls(scope=scope, **data)
 
+    def validate(self, mode: str = "search") -> tuple[list[str], list[str]]:
+        """Validate configuration before starting a crawl.
+
+        Returns:
+            A tuple of (errors, warnings). Errors are fatal; warnings are advisory.
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        if not self.llm_api_key:
+            errors.append(
+                "llm_api_key is required (set ANTHROPIC_API_KEY env var or llm_api_key in config)"
+            )
+
+        _KEY_REQUIRED_APIS = {"serpapi", "google_cse", "google", "bing"}
+        if mode == "search" and self.search_api.lower() in _KEY_REQUIRED_APIS:
+            if not self.search_api_key:
+                errors.append(
+                    f"search_api_key is required for {self.search_api}"
+                    " (set SEARCH_API_KEY env var or search_api_key in config)"
+                )
+
+        yr = self.scope.year_range
+        if yr is not None:
+            if len(yr) != 2 or yr[0] > yr[1]:
+                errors.append(
+                    f"scope.year_range must be [start, end] with start <= end, got {list(yr)}"
+                )
+            elif not (1990 <= yr[0] <= 2050 and 1990 <= yr[1] <= 2050):
+                warnings.append(
+                    f"scope.year_range {list(yr)} is outside the expected range 1990–2050"
+                )
+
+        try:
+            Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            warnings.append(f"Cannot create output_dir '{self.output_dir}': {exc}")
+
+        try:
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            warnings.append(f"Cannot create directory for db_path '{self.db_path}': {exc}")
+
+        return errors, warnings
+
     def to_yaml(self, path: str) -> None:
         """Persist configuration to a YAML file."""
         import dataclasses

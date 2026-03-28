@@ -17,8 +17,24 @@ logger = logging.getLogger(__name__)
 def _cmd_crawl(args: argparse.Namespace) -> int:
     from .config import CrawlerConfig  # noqa: PLC0415
     from .crawler import AbatementCrawler  # noqa: PLC0415
+    from .storage import StorageManager  # noqa: PLC0415
 
     config = CrawlerConfig.from_yaml(args.config)
+
+    errors, warnings = config.validate(mode=args.mode)
+    for w in warnings:
+        print(f"Warning: {w}", file=sys.stderr)
+    if errors:
+        for e in errors:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "fresh", False):
+        storage = StorageManager(config.db_path)
+        n = storage.clear_url_cache()
+        storage.close()
+        print(f"Cleared {n} cached URLs — starting fresh crawl.")
+
     crawler = AbatementCrawler(config)
 
     if args.mode == "seed":
@@ -38,6 +54,30 @@ def _cmd_web(args: argparse.Namespace) -> int:
 
     app = create_app(config_path=args.config)
     app.run(host=args.host, port=args.port, debug=args.debug)
+    return 0
+
+
+def _cmd_sessions(args: argparse.Namespace) -> int:
+    from .config import CrawlerConfig  # noqa: PLC0415
+    from .storage import StorageManager  # noqa: PLC0415
+
+    config = CrawlerConfig.from_yaml(args.config)
+    storage = StorageManager(config.db_path)
+    sessions = storage.list_sessions()
+    storage.close()
+
+    if not sessions:
+        print("No crawl sessions found.")
+        return 0
+
+    for s in sessions:
+        stats = s["stats"]
+        print(
+            f"{s['session_id']}"
+            f"  started={s['started_at']}"
+            f"  records={stats.get('total_records', '?')}"
+            f"  exported={stats.get('qualified_records', '?')}"
+        )
     return 0
 
 
@@ -88,6 +128,11 @@ def main() -> None:
     crawl_parser.add_argument(
         "--seed-urls", nargs="*", help="Seed URLs for seed mode"
     )
+    crawl_parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Clear the URL cache before crawling so all URLs are revisited",
+    )
 
     # web sub-command
     web_parser = subparsers.add_parser("web", help="Launch the web UI")
@@ -116,6 +161,12 @@ def main() -> None:
         help="Minimum quality score for export (default: 0.3)",
     )
 
+    # sessions sub-command
+    sessions_parser = subparsers.add_parser(
+        "sessions", help="List past crawl sessions"
+    )
+    sessions_parser.add_argument("--config", required=True, help="Path to config YAML")
+
     args = parser.parse_args()
 
     if args.command == "web":
@@ -124,6 +175,8 @@ def main() -> None:
         sys.exit(_cmd_crawl(args))
     elif args.command == "export":
         sys.exit(_cmd_export(args))
+    elif args.command == "sessions":
+        sys.exit(_cmd_sessions(args))
     else:
         parser.print_help()
         sys.exit(0)
